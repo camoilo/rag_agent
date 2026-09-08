@@ -2,7 +2,6 @@
 
 from functools import lru_cache
 from pathlib import Path
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 锚定 backend/ 目录：.env 与存储路径不随当前工作目录（cwd）变化
