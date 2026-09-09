@@ -94,12 +94,18 @@ async def delete_document(doc_id: Annotated[str, PathParam()]):
         path.unlink(missing_ok=True)
 
 
-async def _vectorize(doc_id: str, document_name: str, file_path: Path) -> None:
+async def _vectorize(doc_id: str, document_name: str, file_path: Path):
     """后台向量化，完成后更新状态：ready / empty / failed。"""
     try:
         chunk_count = await ingest_document(doc_id, document_name, file_path)
         status = "ready" if chunk_count else "empty"
         async with connect() as db:
+            row = await (
+                await db.execute("SELECT 1 FROM documents WHERE id = ?", (doc_id,))
+            ).fetchone()
+            if row is None:
+                delete_document_vectors(doc_id)
+                return None
             await db.execute(
                 "UPDATE documents SET status = ?, chunk_count = ? WHERE id = ?",
                 (status, chunk_count, doc_id),
