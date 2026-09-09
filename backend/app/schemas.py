@@ -34,3 +34,14 @@ class SessionRenameRequest(BaseModel):
     """重命名会话的请求。"""
 
     title: str = Field(min_length=1, max_length=30)
+
+
+class DocumentOut(BaseModel):
+    """上传文档。"""
+
+    id: str
+    document_name: str  # 用户上传时的原始文件名（磁盘上按 id 存储）
+    status: str  # processing / ready / empty / failed
+    error: str | None = None
+    chunk_count: int
+    created_at: str

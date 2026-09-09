@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     chat_model: str = "qwen3.7-plus"
     embedding_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     embedding_model: str = "qwen3.7-text-embedding"
+    embed_batch_size: int = 20  # 单次嵌入请求的文本行数，需 ≤ 最大行数上限
+
+    # 上传限制
+    max_upload_bytes: int = 20 * 1024 * 1024  # 20MB
 
     # RAG 参数
     chunk_size: int = 800

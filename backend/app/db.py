@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS documents (
     id          TEXT PRIMARY KEY,
-    filename    TEXT NOT NULL,
+    document_name TEXT NOT NULL,
     status      TEXT NOT NULL,          -- processing / ready / empty / failed
     error       TEXT,
     chunk_count INTEGER NOT NULL DEFAULT 0,
