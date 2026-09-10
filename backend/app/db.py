@@ -74,3 +74,12 @@ async def init_db():
     async with connect() as db:
         await db.executescript(SCHEMA)
         await db.commit()
+
+
+async def session_exists(session_id: str) -> bool:
+    """判断会话是否存在。"""
+    async with connect() as db:
+        row = await (
+            await db.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,))
+        ).fetchone()
+        return row is not None

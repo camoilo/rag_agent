@@ -77,17 +77,12 @@ async def upload_document(background_tasks: BackgroundTasks, file: UploadFile) -
 @router.delete("/{doc_id}", status_code=204)
 async def delete_document(doc_id: Annotated[str, PathParam()]):
     """删除文档：向量数据库分块、业务库记录、上传文件的目录三处同步清理。"""
-    async with connect() as db:
-        row = await (
-            await db.execute("SELECT 1 FROM documents WHERE id = ?", (doc_id,))
-        ).fetchone()
-        if row is None:
-            raise HTTPException(status_code=404, detail="文档不存在")
-
     delete_document_vectors(doc_id)
 
     async with connect() as db:
-        await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+        cursor = await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="文档不存在")
         await db.commit()
 
     for path in UPLOADS_DIR.glob(f"{doc_id}.*"):
@@ -100,17 +95,13 @@ async def _vectorize(doc_id: str, document_name: str, file_path: Path):
         chunk_count = await ingest_document(doc_id, document_name, file_path)
         status = "ready" if chunk_count else "empty"
         async with connect() as db:
-            row = await (
-                await db.execute("SELECT 1 FROM documents WHERE id = ?", (doc_id,))
-            ).fetchone()
-            if row is None:
-                delete_document_vectors(doc_id)
-                return None
-            await db.execute(
+            cursor = await db.execute(
                 "UPDATE documents SET status = ?, chunk_count = ? WHERE id = ?",
                 (status, chunk_count, doc_id),
             )
             await db.commit()
+        if cursor.rowcount == 0:
+            delete_document_vectors(doc_id)  # 向量化期间文档已被删除：清理刚写入的向量
     except Exception as exc:
         async with connect() as db:
             await db.execute(

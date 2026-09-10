@@ -6,22 +6,13 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path
 
 from app.core.agent import get_memory_saver
-from app.db import connect, now
+from app.db import connect, now, session_exists
 from app.schemas import Citation, MessageOut, SessionOut, SessionRenameRequest
 
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
 _SESSION_COLUMNS = "id, title, created_at"
-
-
-async def _ensure_session(db, session_id: str) -> None:
-    """会话不存在时抛 404。"""
-    row = await (
-        await db.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,))
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="会话不存在")
 
 
 @router.get("")
@@ -50,8 +41,9 @@ async def create_session() -> SessionOut:
 @router.get("/{session_id}/messages")
 async def get_messages(session_id: Annotated[str, Path()]) -> list[MessageOut]:
     """会话的历史消息，按时间正序。"""
+    if not await session_exists(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
     async with connect() as db:
-        await _ensure_session(db, session_id)
         rows = await (
             await db.execute(
                 "SELECT id, role, content, citations, created_at FROM messages"
@@ -89,12 +81,13 @@ async def rename_session(session_id: Annotated[str, Path()], request: SessionRen
     return SessionOut.model_validate(dict(row))
 
 
-@router.delete("/{session_id}", status_code=204)    # 204无返回内容
-async def delete_session(session_id: Annotated[str, Path()]) -> None:
+@router.delete("/{session_id}", status_code=204)
+async def delete_session(session_id: Annotated[str, Path()]):
     """删除会话：业务库会话 + 记忆库对应线程。"""
     async with connect() as db:
-        await _ensure_session(db, session_id)
         await db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
-        await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        cursor = await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="会话不存在")  # 未commit，messages的删除会回滚
         await db.commit()
     await get_memory_saver().adelete_thread(session_id)
