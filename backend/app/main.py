@@ -1,18 +1,23 @@
 """FastAPI 入口：应用实例、中间件、健康检查与全局统计。"""
 
-from fastapi import FastAPI
 from contextlib import asynccontextmanager
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.agent import close_agent, init_agent
 from app.db import connect, init_db
-from app.routers import sessions, documents
+from app.routers import documents, sessions
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """应用生命周期：启动时初始化数据库。"""
+    """应用生命周期：启动时初始化业务库与记忆库，停止时关闭记忆连接。"""
     await init_db()
-    yield
+    await init_agent()
+    try:
+        yield
+    finally:
+        await close_agent()
 
 
 app = FastAPI(

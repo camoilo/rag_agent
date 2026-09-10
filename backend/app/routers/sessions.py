@@ -5,6 +5,7 @@ import uuid
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path
 
+from app.core.agent import get_memory_saver
 from app.db import connect, now
 from app.schemas import Citation, MessageOut, SessionOut, SessionRenameRequest
 
@@ -90,9 +91,10 @@ async def rename_session(session_id: Annotated[str, Path()], request: SessionRen
 
 @router.delete("/{session_id}", status_code=204)    # 204无返回内容
 async def delete_session(session_id: Annotated[str, Path()]) -> None:
-    """删除会话及其全部消息。"""
+    """删除会话：业务库会话 + 记忆库对应线程。"""
     async with connect() as db:
         await _ensure_session(db, session_id)
         await db.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
         await db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         await db.commit()
+    await get_memory_saver().adelete_thread(session_id)

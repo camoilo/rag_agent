@@ -10,7 +10,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # 存储路径为项目约定，直接指定 backend/data
 DATA_DIR = BASE_DIR / "data"
 APP_DB = DATA_DIR / "app.db"    # 业务数据库
-MEMORY_DB = DATA_DIR / "agent_memory.db"  # LangGraph 记忆库（与业务库分离，避免锁竞争）
+MEMORY_DIR = DATA_DIR / "agent_memory"  # 记忆库目录
+MEMORY_DB = MEMORY_DIR / "agent_memory.db"  # LangGraph 记忆库
 CHROMA_DIR = DATA_DIR / "chroma"
 UPLOADS_DIR = DATA_DIR / "uploads"
 
