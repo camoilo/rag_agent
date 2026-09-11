@@ -1,0 +1,33 @@
+# RAG 知识库助手 · Docker 编排
+# 用法：
+#   1. 准备 backend/.env（至少 OPENAI_API_KEY）
+#   2. docker compose up -d --build
+#   3. 访问 http://<主机IP>/
+#
+# 数据持久化：业务库 / 记忆库 / 向量库 / 上传文件 均存于 rag-data 卷
+
+services:
+  backend:
+    build: ./backend
+    container_name: rag-agent-backend
+    restart: unless-stopped
+    # .env 不打进镜像，以环境变量注入（pydantic-settings 优先读环境变量）
+    env_file: backend/.env
+    volumes:
+      - rag-data:/app/backend/data
+    # 仅暴露给 compose 内部网络，不映射宿主机端口
+    expose:
+      - "8000"
+
+  frontend:
+    build: ./frontend
+    container_name: rag-agent-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy  # 等后端健康检查通过再启动
+
+volumes:
+  rag-data:
