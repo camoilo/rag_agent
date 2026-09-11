@@ -23,6 +23,7 @@ export const useChatStore = defineStore('chat', {
     sessions: [],
     currentSessionId: null,
     messages: [],
+    loadingMessages: false, // 历史消息加载中
     streaming: false,
     abortController: null,
   }),
@@ -46,7 +47,12 @@ export const useChatStore = defineStore('chat', {
 
     async selectSession(id) {
       this.currentSessionId = id
-      this.messages = await listMessages(id)
+      this.loadingMessages = true
+      try {
+        this.messages = await listMessages(id)
+      } finally {
+        this.loadingMessages = false
+      }
     },
 
     async renameSession(id, title) {

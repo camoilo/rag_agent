@@ -29,7 +29,7 @@ async function handleSend(question) {
         {{ chat.currentSession?.title ?? '对话' }}
       </header>
 
-      <main class="chat__main">
+      <main v-loading="chat.loadingMessages" class="chat__main">
         <div v-if="!chat.currentSessionId" class="chat__empty">
           <el-empty description="点击左侧「新建对话」开始提问" />
         </div>
