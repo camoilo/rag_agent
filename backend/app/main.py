@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.agent import close_agent, init_agent
 from app.db import connect, init_db
-from app.routers import documents, sessions
+from app.routers import chat, documents, sessions
 
 
 @asynccontextmanager
@@ -35,6 +35,7 @@ app.add_middleware(
 
 app.include_router(sessions.router)
 app.include_router(documents.router)
+app.include_router(chat.router)
 
 
 @app.get("/api/health")

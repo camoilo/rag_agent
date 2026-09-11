@@ -15,7 +15,6 @@ from app.core.retriever import retrieve
 from app.schemas import Citation
 
 # 当前请求的引用收集器：chat 路由每轮 set 一个新列表，
-# 工具执行时往里 append，流结束后随 done 事件下发
 citations_var: ContextVar[list[Citation]] = ContextVar("citations")
 
 _SYSTEM_PROMPT = """你是本地知识库的问答助手，用中文回答，使用 Markdown 格式。

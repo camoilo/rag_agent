@@ -36,6 +36,13 @@ class SessionRenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=30)
 
 
+class ChatRequest(BaseModel):
+    """聊天请求。"""
+
+    session_id: str
+    question: str = Field(min_length=1, max_length=4000)
+
+
 class DocumentOut(BaseModel):
     """上传文档。"""
 
