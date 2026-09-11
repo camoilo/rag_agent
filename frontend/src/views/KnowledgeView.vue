@@ -1,37 +1,61 @@
 <script setup>
-// 知识库页：统计卡片、上传、文档列表
-import { ref, onMounted } from 'vue'
+// 知识库页：统计卡片 + 上传卡片 + 文档表格
+// 统计随文档状态变化（上传 / 轮询 processing→ready / 删除）自动刷新
+import { onMounted, ref, watch } from 'vue'
+import StatsCards from '@/components/knowledge/StatsCards.vue'
+import UploadCard from '@/components/knowledge/UploadCard.vue'
+import DocumentTable from '@/components/knowledge/DocumentTable.vue'
+import { getStats } from '@/api/http'
+import { useDocumentsStore } from '@/stores/documents'
 
-const healthy = ref(false)
+const documentsStore = useDocumentsStore()
+const stats = ref(null)
 
-onMounted(async () => {
-  try {
-    const res = await fetch('/api/health')
-    healthy.value = res.ok
-  } catch {
-    healthy.value = false
-  }
+async function loadStats() {
+  stats.value = await getStats()
+}
+
+onMounted(() => {
+  documentsStore.loadDocuments()
+  loadStats()
 })
+
+// 文档状态变化（上传入列 / 轮询 processing→ready / 删除）时同步刷新统计
+watch(
+  () => documentsStore.documents.map((d) => d.status).join(','),
+  () => loadStats(),
+)
 </script>
 
 <template>
-  <section class="page">
-    <h2>知识库</h2>
-    <p class="page__hint">
-      后端连接：
-      <el-tag :type="healthy ? 'success' : 'danger'" size="small">
-        {{ healthy ? '正常' : '不可用' }}
-      </el-tag>
-    </p>
+  <section class="knowledge">
+    <StatsCards :stats="stats" />
+
+    <div class="knowledge__upload">
+      <UploadCard :upload="documentsStore.upload" />
+    </div>
+
+    <div class="knowledge__table">
+      <DocumentTable :documents="documentsStore.documents" />
+    </div>
   </section>
 </template>
 
 <style scoped>
-.page {
+.knowledge {
   padding: 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+  overflow-y: auto;
+  height: 100%;
+  box-sizing: border-box;
 }
 
-.page__hint {
-  color: var(--el-text-color-secondary);
+.knowledge__upload {
+  margin-top: 20px;
+}
+
+.knowledge__table {
+  margin-top: 20px;
 }
 </style>

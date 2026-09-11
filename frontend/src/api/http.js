@@ -31,10 +31,10 @@ export const listMessages = (sessionId) =>
 
 // ---- 文档 ----
 export const listDocuments = () => http.get('/documents').then((r) => r.data)
-export const uploadDocument = (file) => {
+export const uploadDocument = (file, onUploadProgress) => {
   const form = new FormData()
   form.append('file', file)
   // 上传单独放宽超时（大文件 + 慢网络）
-  return http.post('/documents', form, { timeout: 120000 }).then((r) => r.data)
+  return http.post('/documents', form, { timeout: 120000, onUploadProgress }).then((r) => r.data)
 }
 export const deleteDocument = (id) => http.delete(`/documents/${id}`)

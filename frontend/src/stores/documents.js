@@ -24,8 +24,8 @@ export const useDocumentsStore = defineStore('documents', {
       if (this.processing) this.ensurePolling()
     },
 
-    async upload(file) {
-      const doc = await uploadDocument(file)
+    async upload(file, onUploadProgress) {
+      const doc = await uploadDocument(file, onUploadProgress)
       this.documents.unshift(doc)
       this.ensurePolling()
       return doc
