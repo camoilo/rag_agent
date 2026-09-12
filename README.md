@@ -1,0 +1,144 @@
+# RAG 知识库助手
+
+前后端分离的检索增强问答（RAG）应用：上传文档构建知识库，基于 LangChain + LangGraph 的 Agent 进行流式问答，回答附带引用来源。
+
+## 功能
+
+- **知识库管理**：上传 `.pdf` / `.txt` / `.md` 文档（单文件 ≤ 20MB），后台异步解析、切分、向量化入库；支持删除（联动清理向量与文件）
+- **混合检索**：向量检索（Chroma）+ BM25（jieba 分词 + rank_bm25），RRF 融合排序，中文召回效果优于单一向量检索
+- **流式问答**：SSE 逐 token 输出，回答中 `[n]` 标注引用来源，附原文片段与页码
+- **会话记忆**：LangGraph checkpointer 持久化每个会话的对话上下文，删除会话时联动清空
+- **用量统计**：会话数、文档数、消息数、token 用量一览
+
+## 技术栈
+
+| 层 | 技术 |
+|---|---|
+| 后端框架 | Python 3.13 · FastAPI · uvicorn |
+| Agent | LangChain（`create_agent`）· LangGraph（`AsyncSqliteSaver` 记忆） |
+| 模型 | OpenAI 协议兼容接口（默认阿里云百炼 qwen 系列） |
+| 向量库 | Chroma（`langchain-chroma`） |
+| 检索 | 向量 + jieba + rank_bm25（RRF 融合） |
+| 业务存储 | SQLite（aiosqlite 原生 SQL） |
+| 前端 | Vue 3 · Vite · Element Plus · Pinia · axios |
+| 渲染 | marked + DOMPurify |
+| 部署 | Docker Compose（前端 nginx + 后端 uvicorn） |
+
+## 项目结构
+
+```
+rag_agent/
+├── backend/
+│   ├── app/
+│   │   ├── main.py              # FastAPI 入口与生命周期
+│   │   ├── config.py            # 环境变量与存储路径
+│   │   ├── db.py                # 业务库连接与操作
+│   │   ├── schemas.py           # Pydantic 请求/响应模型
+│   │   ├── routers/
+│   │   │   ├── sessions.py      # 会话 CRUD
+│   │   │   ├── documents.py     # 上传/列表/删除
+│   │   │   └── chat.py          # SSE 流式问答
+│   │   └── core/
+│   │       ├── document_processing.py  # 解析、切分、向量化入库
+│   │       ├── vector_store.py        # Chroma 封装
+│   │       ├── retriever.py           # 混合检索
+│   │       └── agent.py               # LLM、工具与 Agent 构建
+│   ├── data/                    # 运行时数据（git 忽略）
+│   │   ├── app.db               # 业务库（sessions/documents/messages/usage_log）
+│   │   ├── agent_memory/        # LangGraph 记忆库（与会话绑定）
+│   │   ├── chroma/              # 向量库
+│   │   └── uploads/             # 上传原件
+│   ├── Dockerfile
+│   ├── .env.example
+│   └── pyproject.toml
+├── frontend/
+│   ├── src/
+│   │   ├── api/                 # http.js（REST）· sse.js（流式）
+│   │   ├── stores/              # chat.js · documents.js（Pinia）
+│   │   ├── components/         # chat/ · knowledge/ 组件
+│   │   ├── views/               # ChatView · KnowledgeView
+│   │   └── router/
+│   ├── nginx.conf               # 容器版站点配置（反代 + SSE）
+│   └── Dockerfile
+├── docker-compose.yml
+├── README.md
+└── LICENSE
+```
+
+## 快速开始
+
+### 方式一：本地开发
+
+**后端**（Python 3.13+，依赖管理用 [uv](https://docs.astral.sh/uv/)）：
+
+```bash
+cd backend
+cp .env.example .env        # 填入 OPENAI_API_KEY
+uv sync
+uv run uvicorn app.main:app --reload --port 8000
+```
+
+**前端**（Node 20+）：
+
+```bash
+cd frontend
+npm ci
+npm run dev                # http://localhost:5173，/api 代理到 8000
+```
+
+### 方式二：Docker 部署
+
+```bash
+# 准备 backend/.env
+docker compose up -d --build
+# 访问 http://<主机IP>/
+```
+
+- 前端容器（nginx:80）反代后端容器，SSE 已配置无缓冲转发
+- 数据持久化于 `rag-data` 卷（业务库 / 记忆库 / 向量库 / 上传文件）
+- `docker compose down` 停止（数据保留），`docker compose down -v` 连同数据一起删除
+
+## 配置
+
+`backend/.env`（完整默认值见 `backend/app/config.py`）：
+
+| 变量 | 必填 | 说明 |
+|---|---|---|
+| `OPENAI_API_KEY` | 是 | OpenAI 协议兼容平台的 API Key |
+| `OPENAI_BASE_URL` | 否 | 对话模型接口，默认阿里云百炼 |
+| `CHAT_MODEL` | 否 | 对话模型名，默认 `qwen3.7-plus` |
+| `EMBEDDING_BASE_URL` | 否 | 向量模型接口 |
+| `EMBEDDING_MODEL` | 否 | 向量模型名 |
+| `CHUNK_SIZE` / `CHUNK_OVERLAP` | 否 | 切分参数，默认 800 / 100 |
+| `TOP_K` | 否 | 最终返回的引用块数，默认 4 |
+| `USE_HYBRID` | 否 | 是否混合检索，默认 `true` |
+| `CANDIDATE_K` | 否 | 混合检索每路候选数，默认 20 |
+| `MAX_UPLOAD_BYTES` | 否 | 上传大小上限，默认 20MB |
+
+## API 概览
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/health` | 健康检查 |
+| GET | `/api/stats` | 用量统计 |
+| POST | `/api/sessions` | 新建会话 |
+| GET | `/api/sessions` | 会话列表 |
+| PATCH | `/api/sessions/{id}` | 重命名 |
+| DELETE | `/api/sessions/{id}` | 删除（联动清空记忆） |
+| GET | `/api/sessions/{id}/messages` | 历史消息 |
+| POST | `/api/documents` | 上传文档（multipart） |
+| GET | `/api/documents` | 文档列表 |
+| DELETE | `/api/documents/{id}` | 删除（联动清理向量与文件） |
+| POST | `/api/chat` | SSE 流式问答 |
+
+交互式文档：后端启动后访问 `http://localhost:8000/docs`。
+
+## 设计要点
+
+- **记忆与业务隔离**：会话记忆存独立 SQLite（`agent_memory.db`），与业务库（`app.db`）物理分离，避免 SQLite 锁竞争；`thread_id = session_id`，会话间记忆互不可见
+- **模型自主检索**：知识检索封装为 `knowledge_search` 工具，由模型决定是否调用；系统提示词要求先检索再回答、引用标注 `[n]`、无结果时如实说明
+- **删除即清理**：删会话 → 同步清空该会话记忆；删文档 → 校验向量化进行中状态防止竞态，同步清理业务记录、向量块与上传原件
+
+## License
+
+[MIT](LICENSE)
