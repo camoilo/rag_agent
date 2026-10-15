@@ -9,8 +9,28 @@ const props = defineProps({
   upload: { type: Function, required: true },
 })
 
-const ALLOWED_SUFFIXES = ['.pdf', '.txt', '.md'] // 与后端 ALLOWED_SUFFIXES 对应
-const MAX_SIZE_BYTES = 20 * 1024 * 1024
+// 后端按当前解析模式校验，此处为 MinerU 各模式支持格式的并集
+const ALLOWED_SUFFIXES = [
+  '.pdf',
+  '.txt',
+  '.md',
+  '.doc',
+  '.docx',
+  '.ppt',
+  '.pptx',
+  '.xls',
+  '.xlsx',
+  '.html',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.jp2',
+  '.webp',
+  '.gif',
+  '.bmp',
+]
+const MAX_SIZE_BYTES = 200 * 1024 * 1024
+const MAX_SIZE_MB = MAX_SIZE_BYTES / (1024 * 1024)
 
 // 本地上传任务列表：{ name, percent }，上传期间显示进度条
 const tasks = ref([])
@@ -26,7 +46,7 @@ function validate(file) {
     return false
   }
   if (file.size > MAX_SIZE_BYTES) {
-    ElMessage.error(`「${file.name}」超过 20MB 上限`)
+    ElMessage.error(`「${file.name}」超过 ${MAX_SIZE_MB}MB 上限`)
     return false
   }
   return true
@@ -52,14 +72,16 @@ async function handleUpload({ file }) {
     <el-upload
       drag
       multiple
-      accept=".pdf,.txt,.md"
+      :accept="ALLOWED_SUFFIXES.join(',')"
       :show-file-list="false"
       :http-request="handleUpload"
     >
       <div class="upload__zone">
         <el-icon :size="36" class="upload__icon"><UploadFilled /></el-icon>
         <p class="upload__text">拖拽文件到此处，或点击选择</p>
-        <p class="upload__hint">支持 pdf / txt / md，单个不超过 20MB</p>
+        <p class="upload__hint">
+          支持 PDF / Office 文档 / 图片 / txt / md，单个不超过 {{ MAX_SIZE_MB }}MB
+        </p>
       </div>
     </el-upload>
 

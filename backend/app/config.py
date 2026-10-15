@@ -24,15 +24,23 @@ class Settings(BaseSettings):
     )
 
     # LLM 配置（OpenAI 协议兼容，当前使用阿里云百炼）
-    openai_api_key: str = ""
+    openai_api_key: str = ""    # 在.env 中配置
     openai_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    chat_model: str = "qwen3.7-plus"
+    chat_model: str = "qwen3.8-flash"
     embedding_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    embedding_model: str = "qwen3.7-text-embedding"
+    embedding_model: str = "qwen3.7-text-embedding-flash"
     embed_batch_size: int = 20  # 单次嵌入请求的文本行数，需 ≤ 最大行数上限
 
+    # 文档解析（MinerU）
+    mineru_token: str = ""            # 在.env 中配置，仅 precision 模式生效
+    mineru_mode: str = "precision"    # precision（需 token，单文件 ≤200MB 且 ≤200 页）/ flash（免 token，单文件 ≤10MB 且 ≤20 页）
+    mineru_language: str = "ch"       # 文档语言，留空默认中文
+    mineru_ocr: bool = False          # 扫描件需开启 OCR；仅 precision 生效
+    mineru_formula: bool = True       # 公式识别；仅 precision 生效
+    mineru_table: bool = True         # 表格识别；仅 precision 生效
+    mineru_timeout: int = 600         # 单文件解析等待上限（秒）
     # 上传限制
-    max_upload_bytes: int = 20 * 1024 * 1024  # 20MB
+    max_upload_bytes: int = 200 * 1024 * 1024  # 200MB
 
     # RAG 参数
     chunk_size: int = 800

@@ -36,7 +36,7 @@ const html = computed(() =>
         <div class="citations__title">引用来源</div>
         <div v-for="c in message.citations" :key="c.index" class="citations__row">
           <span class="citations__source">
-            [{{ c.index }}] {{ c.source }}<template v-if="c.page != null"> · 第 {{ c.page }} 页</template>
+            [{{ c.index }}] {{ c.source }}
           </span>
           <span class="citations__snippet">{{ c.snippet }}</span>
         </div>

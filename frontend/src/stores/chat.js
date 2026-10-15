@@ -3,7 +3,7 @@
  * 消息结构（前端统一形态）：
  * - role: 'user' | 'assistant'
  * - content: 正文
- * - citations: [{ index, source, page, snippet }]
+ * - citations: [{ index, source, snippet }]
  * - stats: 流式会话独有 { prompt_tokens, completion_tokens, elapsed_ms }（历史消息无）
  * - error: 流内错误信息（红字气泡）
  */

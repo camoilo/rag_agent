@@ -12,15 +12,13 @@ from fastapi import (
 )
 
 from app.config import UPLOADS_DIR, get_settings
-from app.core.document_processing import ingest_document
+from app.core.document_processing import allowed_suffixes, ingest_document
 from app.core.vector_store import delete_document_vectors
 from app.db import connect, now
 from app.schemas import DocumentOut
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-# 与 document_processing 的解析能力对应；
-ALLOWED_SUFFIXES = {".pdf", ".txt", ".md"}
 _DOCUMENT_COLUMNS = "id, document_name, status, error, chunk_count, created_at"
 
 
@@ -42,8 +40,15 @@ async def upload_document(background_tasks: BackgroundTasks, file: UploadFile) -
     """上传文档：校验 → 保存文件 → 入库 → 后台向量化。"""
     settings = get_settings()
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in ALLOWED_SUFFIXES:
-        raise HTTPException(status_code=400, detail=f"仅支持 {ALLOWED_SUFFIXES} 格式")
+    supported = allowed_suffixes()
+    if suffix not in supported:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"当前解析模式不支持 {suffix or '无扩展名'} 文件，"
+                f"支持：{' / '.join(sorted(supported))}"
+            ),
+        )
 
     content = await file.read()
     if not content:

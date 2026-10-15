@@ -52,17 +52,11 @@ def knowledge_search(query: Annotated[str, "检索查询，使用与提问一致
         citation = Citation(
             index=i,
             source=metadata.get("source", "未知来源"),
-            page=metadata.get("page"),
             snippet=chunk.page_content[:100],
         )
         if citations is not None:
             citations.append(citation)
-        blocks.append(
-            f"[{citation.index}]（来源：{citation.source}"
-            + (f"，第 {citation.page} 页" if citation.page else "")
-            + "）\n"
-            + chunk.page_content
-        )
+        blocks.append(f"[{citation.index}]（来源：{citation.source}）\n{chunk.page_content}")
     return "\n\n".join(blocks)
 
 

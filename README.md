@@ -4,25 +4,26 @@
 
 ## 功能
 
-- **知识库管理**：上传 `.pdf` / `.txt` / `.md` 文档（单文件 ≤ 20MB），后台异步解析、切分、向量化入库；支持删除（联动清理向量与文件）
+- **知识库管理**：上传 PDF / Office 文档 / 图片 / `.txt` / `.md`（单文件 ≤ 200MB），由 MinerU 在线解析为 Markdown 后切分、向量化入库；支持删除（联动清理向量与文件）
 - **混合检索**：向量检索（Chroma）+ BM25（jieba 分词 + rank_bm25），RRF 融合排序，中文召回效果优于单一向量检索
-- **流式问答**：SSE 逐 token 输出，回答中 `[n]` 标注引用来源，附原文片段与页码
+- **流式问答**：SSE 逐 token 输出，回答中 `[n]` 标注引用来源，附来源文件与原文片段
 - **会话记忆**：LangGraph checkpointer 持久化每个会话的对话上下文，删除会话时联动清空
 - **用量统计**：会话数、文档数、消息数、token 用量一览
 
 ## 技术栈
 
-| 层 | 技术 |
-|---|---|
-| 后端框架 | Python 3.13 · FastAPI · uvicorn |
-| Agent | LangChain（`create_agent`）· LangGraph（`AsyncSqliteSaver` 记忆） |
-| 模型 | OpenAI 协议兼容接口（默认阿里云百炼 qwen 系列） |
-| 向量库 | Chroma（`langchain-chroma`） |
-| 检索 | 向量 + jieba + rank_bm25（RRF 融合） |
-| 业务存储 | SQLite（aiosqlite 原生 SQL） |
-| 前端 | Vue 3 · Vite · Element Plus · Pinia · axios |
-| 渲染 | marked + DOMPurify |
-| 部署 | Docker Compose（前端 nginx + 后端 uvicorn） |
+| 层       | 技术                                                              |
+|----------|-------------------------------------------------------------------|
+| 后端框架 | Python 3.13 · FastAPI · uvicorn                                   |
+| Agent    | LangChain（`create_agent`）· LangGraph（`AsyncSqliteSaver` 记忆） |
+| 模型     | OpenAI 协议兼容接口（默认阿里云百炼 qwen 系列）                   |
+| 文档解析 | MinerU 在线 API（`langchain-mineru` 的 `MinerULoader`）           |
+| 向量库   | Chroma（`langchain-chroma`）                                      |
+| 检索     | 向量 + jieba + rank_bm25（RRF 融合）                              |
+| 业务存储 | SQLite（aiosqlite 原生 SQL）                                      |
+| 前端     | Vue 3 · Vite · Element Plus · Pinia · axios                       |
+| 渲染     | marked + DOMPurify                                                |
+| 部署     | Docker Compose（前端 nginx + 后端 uvicorn）                       |
 
 ## 项目结构
 
@@ -39,7 +40,7 @@ rag_agent/
 │   │   │   ├── documents.py     # 上传/列表/删除
 │   │   │   └── chat.py          # SSE 流式问答
 │   │   └── core/
-│   │       ├── document_processing.py  # 解析、切分、向量化入库
+│   │       ├── document_processing.py  # MinerU 解析、切分、向量化入库
 │   │       ├── vector_store.py        # Chroma 封装
 │   │       ├── retriever.py           # 混合检索
 │   │       └── agent.py               # LLM、工具与 Agent 构建
@@ -73,7 +74,7 @@ rag_agent/
 
 ```bash
 cd backend
-cp .env.example .env        # 填入 OPENAI_API_KEY
+cp .env.example .env        # 填入 OPENAI_API_KEY 与 MINERU_TOKEN
 uv sync
 uv run uvicorn app.main:app --reload --port 8000
 ```
@@ -100,36 +101,38 @@ docker compose up -d --build
 
 ## 配置
 
-`backend/.env`（完整默认值见 `backend/app/config.py`）：
 
-| 变量 | 必填 | 说明 |
-|---|---|---|
-| `OPENAI_API_KEY` | 是 | OpenAI 协议兼容平台的 API Key |
-| `OPENAI_BASE_URL` | 否 | 对话模型接口，默认阿里云百炼 |
-| `CHAT_MODEL` | 否 | 对话模型名，默认 `qwen3.7-plus` |
-| `EMBEDDING_BASE_URL` | 否 | 向量模型接口 |
-| `EMBEDDING_MODEL` | 否 | 向量模型名 |
-| `CHUNK_SIZE` / `CHUNK_OVERLAP` | 否 | 切分参数，默认 800 / 100 |
-| `TOP_K` | 否 | 最终返回的引用块数，默认 4 |
-| `USE_HYBRID` | 否 | 是否混合检索，默认 `true` |
-| `CANDIDATE_K` | 否 | 混合检索每路候选数，默认 20 |
-| `MAX_UPLOAD_BYTES` | 否 | 上传大小上限，默认 20MB |
+| 变量                           | 必填 | 说明                                                                            |
+|--------------------------------|------|---------------------------------------------------------------------------------|
+| `OPENAI_API_KEY`               | 是   | OpenAI 协议兼容平台的 API Key                                                   |
+| `OPENAI_BASE_URL`              | 否   | 对话模型接口，默认阿里云百炼                                                    |
+| `CHAT_MODEL`                   | 否   | 对话模型名，默认 `qwen3.8-flash`                                                |
+| `EMBEDDING_BASE_URL`           | 否   | 向量模型接口                                                                    |
+| `EMBEDDING_MODEL`              | 否   | 向量模型名，默认 `qwen3.7-text-embedding-flash`                                 |
+| `CHUNK_SIZE` / `CHUNK_OVERLAP` | 否   | 切分参数，默认 800 / 100                                                        |
+| `TOP_K`                        | 否   | 最终返回的引用块数，默认 4                                                      |
+| `USE_HYBRID`                   | 否   | 是否混合检索，默认 `true`                                                       |
+| `CANDIDATE_K`                  | 否   | 混合检索每路候选数，默认 20                                                     |
+| `MINERU_TOKEN`                 | 是   | MinerU 解析 token（[MinerU token申请](https://mineru.net/apiManage/token)）     |
+| `MAX_UPLOAD_BYTES`             | 否   | 上传大小上限，默认 200MB                                                        |
+
+其他配置选项，如解析语言、OCR / 公式 / 表格开关等写在 `backend/app/config.py`，调整时直接改该文件，或用同名环境变量覆盖。
 
 ## API 概览
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/api/health` | 健康检查 |
-| GET | `/api/stats` | 用量统计 |
-| POST | `/api/sessions` | 新建会话 |
-| GET | `/api/sessions` | 会话列表 |
-| PATCH | `/api/sessions/{id}` | 重命名 |
-| DELETE | `/api/sessions/{id}` | 删除（联动清空记忆） |
-| GET | `/api/sessions/{id}/messages` | 历史消息 |
-| POST | `/api/documents` | 上传文档（multipart） |
-| GET | `/api/documents` | 文档列表 |
-| DELETE | `/api/documents/{id}` | 删除（联动清理向量与文件） |
-| POST | `/api/chat` | SSE 流式问答 |
+| 方法   | 路径                          | 说明                       |
+|--------|-------------------------------|----------------------------|
+| GET    | `/api/health`                 | 健康检查                   |
+| GET    | `/api/stats`                  | 用量统计                   |
+| POST   | `/api/sessions`               | 新建会话                   |
+| GET    | `/api/sessions`               | 会话列表                   |
+| PATCH  | `/api/sessions/{id}`          | 重命名                     |
+| DELETE | `/api/sessions/{id}`          | 删除（联动清空记忆）       |
+| GET    | `/api/sessions/{id}/messages` | 历史消息                   |
+| POST   | `/api/documents`              | 上传文档（multipart）      |
+| GET    | `/api/documents`              | 文档列表                   |
+| DELETE | `/api/documents/{id}`         | 删除（联动清理向量与文件） |
+| POST   | `/api/chat`                   | SSE 流式问答               |
 
 交互式文档：后端启动后访问 `http://localhost:8000/docs`。
 
@@ -138,6 +141,7 @@ docker compose up -d --build
 - **记忆与业务隔离**：会话记忆存独立 SQLite（`agent_memory.db`），与业务库（`app.db`）物理分离，避免 SQLite 锁竞争；`thread_id = session_id`，会话间记忆互不可见
 - **模型自主检索**：知识检索封装为 `knowledge_search` 工具，由模型决定是否调用；系统提示词要求先检索再回答、引用标注 `[n]`、无结果时如实说明
 - **删除即清理**：删会话 → 同步清空该会话记忆；删文档 → 校验向量化进行中状态防止竞态，同步清理业务记录、向量块与上传原件
+- **解析交给 MinerU**：文档经 MinerU 在线 API 解析为 Markdown（表格、公式一并保留）后入库，文件会上传至 mineru.net；默认 `precision` 精准解析（需 `MINERU_TOKEN`，单文件 ≤ 200MB / ≤ 200 页），可切 `flash` 免 token 快速解析（单文件 ≤ 10MB / ≤ 20 页，支持 xls / xlsx，但不支持 doc / ppt / html）；`.txt` / `.md` 不经 MinerU，本地直接读取
 
 ## License
 

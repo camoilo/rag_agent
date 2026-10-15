@@ -8,7 +8,6 @@ class Citation(BaseModel):
 
     index: int
     source: str
-    page: int | None = None
     snippet: str    # 截取的短文本片段
 
 

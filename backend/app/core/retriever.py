@@ -19,10 +19,10 @@ def _tokenize(text: str) -> list[str]:
 
 
 def _chunk_key(doc: Document) -> str:
-    """分块标识：来源 + 页码 + 内容哈希，用于混合检索时去重。"""
+    """分块标识：来源 + 内容哈希，用于混合检索时去重。"""
     metadata = doc.metadata
     digest = hashlib.md5(doc.page_content.encode("utf-8")).hexdigest()
-    return f"{metadata.get('source', '')}|{metadata.get('page', '')}|{digest}"
+    return f"{metadata.get('source', '')}|{digest}"
 
 
 class _BM25Index:
