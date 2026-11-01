@@ -2,6 +2,7 @@
 
 from contextvars import ContextVar
 from functools import lru_cache
+import hashlib
 from typing import Annotated
 import aiosqlite
 from langchain.agents import create_agent
@@ -14,8 +15,27 @@ from app.config import MEMORY_DIR, MEMORY_DB, get_settings
 from app.core.retriever import retrieve
 from app.schemas import Citation
 
-# 当前请求的引用收集器：chat 路由每轮 set 一个新列表，
-citations_var: ContextVar[list[Citation]] = ContextVar("citations")
+
+class CitationCollector:
+    """一轮问答的引用收集器：跨多次检索连续编号，同一分块复用已有序号。"""
+
+    def __init__(self):
+        self.items: list[Citation] = []
+        self._index_by_key: dict[str, int] = {}
+
+    def register(self, source: str, content: str) -> Citation:
+        """按"来源 + 内容哈希"登记分块；已登记过的返回原引用，保证编号全轮唯一。"""
+        key = f"{source}|{hashlib.md5(content.encode('utf-8')).hexdigest()}"
+        index = self._index_by_key.get(key)
+        if index is None:
+            index = len(self.items) + 1
+            self._index_by_key[key] = index
+            self.items.append(Citation(index=index, source=source, snippet=content[:100]))
+        return self.items[index - 1]
+
+
+# 当前请求的引用收集器：chat 路由每轮 set 一个新实例，
+citations_var: ContextVar[CitationCollector] = ContextVar("citations")
 
 _SYSTEM_PROMPT = """你是本地知识库的问答助手，用中文回答，使用 Markdown 格式。
 回答规则：
@@ -45,17 +65,15 @@ def knowledge_search(query: Annotated[str, "检索查询，使用与提问一致
     if not chunks:
         return "未检索到相关内容。"
 
-    citations = citations_var.get(None)
+    collector = citations_var.get(None)
     blocks = []
     for i, chunk in enumerate(chunks, start=1):
-        metadata = chunk.metadata
-        citation = Citation(
-            index=i,
-            source=metadata.get("source", "未知来源"),
-            snippet=chunk.page_content[:100],
+        source = chunk.metadata.get("source", "未知来源")
+        citation = (
+            collector.register(source, chunk.page_content)
+            if collector is not None
+            else Citation(index=i, source=source, snippet=chunk.page_content[:100])
         )
-        if citations is not None:
-            citations.append(citation)
         blocks.append(f"[{citation.index}]（来源：{citation.source}）\n{chunk.page_content}")
     return "\n\n".join(blocks)
 

@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessageChunk, HumanMessage
 
 from app.config import get_settings
-from app.core.agent import citations_var, get_agent
+from app.core.agent import CitationCollector, citations_var, get_agent
 from app.db import connect, now, session_exists
 from app.schemas import ChatRequest, Citation
 
@@ -41,7 +41,7 @@ async def chat(request: ChatRequest) -> StreamingResponse:
 async def _stream(session_id: str, question: str) -> AsyncIterator[str]:
     """执行 agent 并以 SSE 输出，然后落库。"""
     started = time.perf_counter()
-    collected: list[Citation] = []
+    collected = CitationCollector()
     token = citations_var.set(collected)  # 本轮请求的引用收集器
     parts: list[str] = []
     usage: dict = {}
@@ -62,7 +62,7 @@ async def _stream(session_id: str, question: str) -> AsyncIterator[str]:
 
         yield _event({
             "type": "done",
-            "citations": [c.model_dump() for c in collected],
+            "citations": [c.model_dump() for c in collected.items],
             "elapsed_ms": _elapsed_ms(started),
             "prompt_tokens": usage.get("input_tokens", 0),
             "completion_tokens": usage.get("output_tokens", 0),
@@ -74,7 +74,7 @@ async def _stream(session_id: str, question: str) -> AsyncIterator[str]:
         await _save_assistant(
             session_id,
             answer="".join(parts),
-            citations=collected,
+            citations=collected.items,
             elapsed_ms=_elapsed_ms(started),
             prompt_tokens=usage.get("input_tokens", 0),
             completion_tokens=usage.get("output_tokens", 0),
