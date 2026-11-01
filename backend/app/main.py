@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import get_settings
 from app.core.agent import close_agent, init_agent
 from app.db import connect, fail_interrupted_documents, init_db
 from app.routers import chat, documents, sessions
@@ -27,9 +28,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# 仅允许配置内的来源跨域：生产经 nginx 同源反代，开发走 vite 代理，均无需 " * "
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in get_settings().cors_origins.split(",") if origin.strip()],
     allow_methods=["*"],
     allow_headers=["*"],
 )

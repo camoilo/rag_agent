@@ -23,6 +23,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # 允许的跨域来源（逗号分隔）；开发直连 5173，生产由 nginx 同源反代，无需跨域
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
     # LLM 配置（OpenAI 协议兼容，当前使用阿里云百炼）
     openai_api_key: str = ""    # 在.env 中配置
     openai_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
