@@ -17,6 +17,8 @@ def get_embeddings() -> OpenAIEmbeddings:
         base_url=settings.embedding_base_url,
         check_embedding_ctx_length=False,
         chunk_size=settings.embed_batch_size,  # 单次请求的文本数上限，控制分批请求
+        timeout=settings.embedding_timeout,
+        max_retries=settings.max_retries,
     )
 
 

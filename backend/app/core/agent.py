@@ -56,6 +56,8 @@ def get_llm() -> ChatOpenAI:
         api_key=settings.openai_api_key,
         base_url=settings.openai_base_url,
         stream_usage=True,
+        timeout=settings.llm_timeout,
+        max_retries=settings.max_retries,
     )
 
 

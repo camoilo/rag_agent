@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     embedding_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     embedding_model: str = "qwen3.7-text-embedding-flash"
     embed_batch_size: int = 20  # 单次嵌入请求的文本行数，需 ≤ 最大行数上限
+    llm_timeout: float = 60     # 对话模型网络超时（秒）
+    embedding_timeout: float = 30  # 向量化请求网络超时（秒）
+    max_retries: int = 2        # 网络错误/超时时的重试次数
 
     # 文档解析（MinerU）
     mineru_token: str = ""            # 在.env 中配置，仅 precision 模式生效
