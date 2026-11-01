@@ -2,7 +2,7 @@
 # 用法：
 #   1. 准备 backend/.env（至少 OPENAI_API_KEY、MINERU_TOKEN）
 #   2. docker compose up -d --build
-#   3. 访问 http://<主机IP>/
+#   3. 访问 http://localhost/（默认仅绑定本机）
 #
 # 数据持久化：业务库 / 记忆库 / 向量库 / 上传文件 均存于 rag-data 卷
 
@@ -24,7 +24,9 @@ services:
     container_name: rag-agent-frontend
     restart: unless-stopped
     ports:
-      - "80:80"
+      # 默认只绑定宿主机回环，避免同网段无鉴权访问；
+      # 确需局域网访问时改为 "80:80"，并在 nginx / 反代层加访问控制（应用自身无鉴权）
+      - "127.0.0.1:80:80"
     depends_on:
       backend:
         condition: service_healthy  # 等后端健康检查通过再启动

@@ -26,4 +26,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
 
 # 0.0.0.0：需接受来自 frontend 容器的反代流量
+# 注意：必须单 worker，多 worker 会误杀其他进程正在解析的任务，请勿添加 --workers。
 CMD [".venv/bin/uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

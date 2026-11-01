@@ -76,7 +76,7 @@ rag_agent/
 cd backend
 cp .env.example .env        # 填入 OPENAI_API_KEY 与 MINERU_TOKEN
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8000   # 单 worker，勿加 --workers
 ```
 
 **前端**（Node 20+）：
@@ -92,10 +92,12 @@ npm run dev                # http://localhost:5173，/api 代理到 8000
 ```bash
 # 准备 backend/.env
 docker compose up -d --build
-# 访问 http://<主机IP>/
+# 访问 http://localhost/（默认仅监听本机）
 ```
 
 - 前端容器（nginx:80）反代后端容器，SSE 已配置无缓冲转发
+- 后端必须单 worker：启动时会把上一进程遗留的 `processing` 文档标记为失败，多 worker 会误杀其他进程正在解析的任务，请勿给 uvicorn 加 `--workers`
+- 默认端口仅绑定 `127.0.0.1`；确需局域网访问时把 `docker-compose.yml` 改为 `"80:80"`，并在 nginx / 反代层加访问控制（应用本身无鉴权）
 - 数据持久化于 `rag-data` 卷（业务库 / 记忆库 / 向量库 / 上传文件）
 - `docker compose down` 停止（数据保留），`docker compose down -v` 连同数据一起删除
 
@@ -115,6 +117,7 @@ docker compose up -d --build
 | `CANDIDATE_K`                  | 否   | 混合检索每路候选数，默认 20                                                     |
 | `MINERU_TOKEN`                 | 是   | MinerU 解析 token（[MinerU token申请](https://mineru.net/apiManage/token)）     |
 | `MAX_UPLOAD_BYTES`             | 否   | 上传大小上限，默认 200MB                                                        |
+| `CORS_ORIGINS`                 | 否   | 允许的跨域来源，逗号分隔，默认仅本地 5173                                       |
 
 其他配置选项，如解析语言、OCR / 公式 / 表格开关等写在 `backend/app/config.py`，调整时直接改该文件，或用同名环境变量覆盖。
 
