@@ -1,13 +1,15 @@
 """文档管理路由：上传（后台向量化）/ 列表 / 删除。"""
 
+import asyncio
 import uuid
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, BinaryIO
 from fastapi import (
     APIRouter,
     BackgroundTasks,
     HTTPException,
     Path as PathParam,
+    Request,
     UploadFile,
 )
 
@@ -20,7 +22,22 @@ from app.schemas import DocumentOut
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
 _DOCUMENT_COLUMNS = "id, document_name, status, error, chunk_count, created_at"
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
 
+class _UploadTooLarge(Exception):
+    """上传文件超过大小上限。"""
+
+
+def _save_upload(src: BinaryIO, dest: Path, max_bytes: int) -> int:
+    """分块拷贝上传文件到磁盘并返回字节数；超限时抛出 _UploadTooLarge。"""
+    size = 0
+    with dest.open("wb") as out:
+        while chunk := src.read(_UPLOAD_CHUNK_BYTES):
+            size += len(chunk)
+            if size > max_bytes:
+                raise _UploadTooLarge
+            out.write(chunk)
+    return size
 
 @router.get("")
 async def list_documents() -> list[DocumentOut]:
@@ -36,8 +53,10 @@ async def list_documents() -> list[DocumentOut]:
 
 
 @router.post("", status_code=201)
-async def upload_document(background_tasks: BackgroundTasks, file: UploadFile) -> DocumentOut:
-    """上传文档：校验 → 保存文件 → 入库 → 后台向量化。"""
+async def upload_document(
+    request: Request, background_tasks: BackgroundTasks, file: UploadFile
+) -> DocumentOut:
+    """上传文档：校验 → 分块落盘 → 入库 → 后台向量化。"""
     settings = get_settings()
     suffix = Path(file.filename or "").suffix.lower()
     supported = allowed_suffixes()
@@ -50,11 +69,10 @@ async def upload_document(background_tasks: BackgroundTasks, file: UploadFile) -
             ),
         )
 
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="文件为空")
-    if len(content) > settings.max_upload_bytes:
-        limit_mb = settings.max_upload_bytes // (1024 * 1024)
+    limit_mb = settings.max_upload_bytes // (1024 * 1024)
+    # 提前按请求体大小拒绝明显超限的上传
+    content_length = request.headers.get("content-length", "")
+    if content_length.isdigit() and int(content_length) > settings.max_upload_bytes + 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"文件大小超过 {limit_mb}MB 上限")
 
     doc = DocumentOut(
@@ -66,7 +84,15 @@ async def upload_document(background_tasks: BackgroundTasks, file: UploadFile) -
     )
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     file_path = UPLOADS_DIR / f"{doc.id}{suffix}"
-    file_path.write_bytes(content)
+    # 分块拷贝放到线程池，避免大文件读入内存并阻塞事件循环
+    try:
+        size = await asyncio.to_thread(_save_upload, file.file, file_path, settings.max_upload_bytes)
+    except _UploadTooLarge:
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"文件大小超过 {limit_mb}MB 上限")
+    if size == 0:
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="文件为空")
 
     async with connect() as db:
         await db.execute(
