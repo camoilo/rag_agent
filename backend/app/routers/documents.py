@@ -94,6 +94,49 @@ async def delete_document(doc_id: Annotated[str, PathParam()]):
         path.unlink(missing_ok=True)
 
 
+@router.post("/{doc_id}/retry")
+async def retry_document(
+    background_tasks: BackgroundTasks, doc_id: Annotated[str, PathParam()]
+) -> DocumentOut:
+    """重新解析失败文档：仅 failed 状态可重试，原文件缺失时要求重新上传。"""
+    async with connect() as db:
+        row = await (
+            await db.execute(
+                f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = ?", (doc_id,)
+            )
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    if row["status"] != "failed":
+        raise HTTPException(status_code=409, detail="仅解析失败的文档可重试")
+
+    file_path = next(UPLOADS_DIR.glob(f"{doc_id}.*"), None)
+    if file_path is None:
+        raise HTTPException(status_code=400, detail="原文件不存在，请重新上传")
+
+    # 条件更新抢占状态，避免并发重复触发解析
+    async with connect() as db:
+        cursor = await db.execute(
+            "UPDATE documents SET status = 'processing', error = NULL, chunk_count = 0"
+            " WHERE id = ? AND status = 'failed'",
+            (doc_id,),
+        )
+        await db.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=409, detail="文档状态已变化，请刷新后重试")
+
+    delete_document_vectors(doc_id)  # 清掉可能残留的分块，避免重复入库
+    background_tasks.add_task(_vectorize, doc_id, row["document_name"], file_path)
+    return DocumentOut(
+        id=doc_id,
+        document_name=row["document_name"],
+        status="processing",
+        error=None,
+        chunk_count=0,
+        created_at=row["created_at"],
+    )
+
+
 async def _vectorize(doc_id: str, document_name: str, file_path: Path):
     """后台向量化，完成后更新状态：ready / empty / failed。"""
     try:

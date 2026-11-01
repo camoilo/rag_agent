@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.agent import close_agent, init_agent
-from app.db import connect, init_db
+from app.db import connect, fail_interrupted_documents, init_db
 from app.routers import chat, documents, sessions
 
 
@@ -13,6 +13,7 @@ from app.routers import chat, documents, sessions
 async def lifespan(_: FastAPI):
     """应用生命周期：启动时初始化业务库与记忆库，停止时关闭记忆连接。"""
     await init_db()
+    await fail_interrupted_documents()
     await init_agent()
     try:
         yield

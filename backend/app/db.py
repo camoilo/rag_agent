@@ -76,6 +76,16 @@ async def init_db():
         await db.commit()
 
 
+async def fail_interrupted_documents():
+    """启动对账：上一进程遗留的 processing 文档已无任务执行，统一标记为失败。"""
+    async with connect() as db:
+        await db.execute(
+            "UPDATE documents SET status = 'failed', error = ? WHERE status = 'processing'",
+            ("服务重启导致解析中断，请重新解析或重新上传",),
+        )
+        await db.commit()
+
+
 async def session_exists(session_id: str) -> bool:
     """判断会话是否存在。"""
     async with connect() as db:
