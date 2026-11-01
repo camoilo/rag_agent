@@ -114,8 +114,10 @@ async def _save_user_message(session_id: str, question: str) -> None:
             ).fetchone()
         )[0]
         await db.execute(
-            "INSERT INTO messages (session_id, role, content, created_at) VALUES (?, 'user', ?, ?)",
-            (session_id, question, now()),
+            "INSERT INTO messages (session_id, role, content, created_at)"
+            " SELECT ?, 'user', ?, ?"
+            " WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)",
+            (session_id, question, now(), session_id),
         )
         if user_count == 0:
             await db.execute(
@@ -138,18 +140,20 @@ async def _save_assistant(
         if answer:
             await db.execute(
                 "INSERT INTO messages (session_id, role, content, citations, created_at)"
-                " VALUES (?, 'assistant', ?, ?, ?)",
+                " SELECT ?, 'assistant', ?, ?, ?"
+                " WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)",
                 (
                     session_id,
                     answer,
                     json.dumps([c.model_dump() for c in citations], ensure_ascii=False),
                     now(),
+                    session_id,
                 ),
             )
         if prompt_tokens or completion_tokens:
             await db.execute(
-                "INSERT INTO usage_log (session_id, prompt_tokens, completion_tokens, elapsed_ms, model, created_at)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, prompt_tokens, completion_tokens, elapsed_ms, settings.chat_model, now()),
+                "INSERT INTO usage_log (prompt_tokens, completion_tokens, elapsed_ms, model, created_at)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (prompt_tokens, completion_tokens, elapsed_ms, settings.chat_model, now()),
             )
         await db.commit()

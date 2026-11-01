@@ -4,7 +4,7 @@
 - sessions   会话
 - documents  上传文档的元数据与向量化状态
 - messages   聊天消息（assistant 消息含引用 JSON）
-- usage_log  每轮对话的 token 用量与耗时
+- usage_log  全局 token 用量与耗时
 """
 
 from contextlib import asynccontextmanager
@@ -42,7 +42,6 @@ CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 
 CREATE TABLE IF NOT EXISTS usage_log (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id        TEXT,
     prompt_tokens     INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     elapsed_ms        INTEGER NOT NULL DEFAULT 0,
