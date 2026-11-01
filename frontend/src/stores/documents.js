@@ -44,17 +44,23 @@ export const useDocumentsStore = defineStore('documents', {
       this.ensurePolling()
     },
 
-    // 存在 processing 文档时启动 3s 轮询，全终态自动停止；幂等
+    // 存在 processing 文档时轮询，全终态自动停止；上一轮请求结束后再排下一轮，
+    // 避免接口变慢时请求堆积（此处 timer 在回调执行期间保持非空，可防止重入）
     ensurePolling() {
       if (this.timer) return
-      this.timer = setInterval(async () => {
-        await this.loadDocuments()
-        if (!this.processing) this.stopPolling()
-      }, POLL_INTERVAL_MS)
+      const tick = async () => {
+        try {
+          await this.loadDocuments()
+        } finally {
+          if (this.processing) this.timer = setTimeout(tick, POLL_INTERVAL_MS)
+          else this.stopPolling()
+        }
+      }
+      this.timer = setTimeout(tick, POLL_INTERVAL_MS)
     },
 
     stopPolling() {
-      clearInterval(this.timer)
+      clearTimeout(this.timer)
       this.timer = null
     },
   },

@@ -1,7 +1,7 @@
 <script setup>
 // 单条消息：user 右侧气泡，assistant 左侧 Markdown 渲染；
 // active 表示该条正处于流式输出（控制"思考中"提示与光标）
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 import { ChatDotRound, User } from '@element-plus/icons-vue'
@@ -11,9 +11,38 @@ const props = defineProps({
   active: { type: Boolean, default: false },
 })
 
-const html = computed(() =>
-  DOMPurify.sanitize(marked.parse(props.message.content ?? '', { breaks: true })),
+// 流式输出时 token 到达非常密集，逐字全量解析 Markdown 是 O(n²) 开销；
+// 按固定间隔渲染最新内容，非流式或流结束时立即渲染
+const RENDER_INTERVAL_MS = 120
+const rendered = ref('')
+let timer = null
+
+function flush() {
+  clearTimeout(timer)
+  timer = null
+  rendered.value = props.message.content ?? ''
+}
+
+watch(
+  () => props.message.content,
+  () => {
+    if (!props.active) return flush()
+    if (!timer) timer = setTimeout(flush, RENDER_INTERVAL_MS)
+  },
+  { immediate: true },
 )
+
+// 流式结束/停止时补齐最后一帧
+watch(
+  () => props.active,
+  (active) => {
+    if (!active) flush()
+  },
+)
+
+onBeforeUnmount(() => clearTimeout(timer))
+
+const html = computed(() => DOMPurify.sanitize(marked.parse(rendered.value, { breaks: true })))
 </script>
 
 <template>
