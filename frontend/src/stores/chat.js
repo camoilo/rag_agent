@@ -46,6 +46,8 @@ export const useChatStore = defineStore('chat', {
     },
 
     async selectSession(id) {
+      // 切换会话时先中止旧会话的流，避免 token 继续写入已丢弃的消息数组
+      if (this.streaming && id !== this.currentSessionId) this.stopStreaming()
       this.currentSessionId = id
       this.loadingMessages = true
       try {
@@ -62,6 +64,8 @@ export const useChatStore = defineStore('chat', {
     },
 
     async removeSession(id) {
+      // 删除正在流式输出的会话时先中止，避免 token 继续写入已删除的会话
+      if (this.streaming && this.currentSessionId === id) this.stopStreaming()
       await deleteSession(id)
       this.sessions = this.sessions.filter((s) => s.id !== id)
       if (this.currentSessionId === id) {
@@ -80,7 +84,8 @@ export const useChatStore = defineStore('chat', {
       const assistant = this.messages[this.messages.length - 1]
 
       this.streaming = true
-      this.abortController = new AbortController()
+      const controller = new AbortController()
+      this.abortController = controller
       try {
         await streamChat({
           sessionId,
@@ -99,15 +104,18 @@ export const useChatStore = defineStore('chat', {
           onError: (detail) => {
             assistant.error = detail
           },
-          signal: this.abortController.signal,
+          signal: controller.signal,
         })
         // 首条消息会成为会话标题，静默刷新列表同步显示
         await this.loadSessions()
       } catch (err) {
         if (err.name !== 'AbortError') assistant.error = err.message ?? String(err)
       } finally {
-        this.streaming = false
-        this.abortController = null
+        // 切换会话会中止旧流，若状态已被后续请求接管则不要重置
+        if (this.abortController === controller) {
+          this.streaming = false
+          this.abortController = null
+        }
       }
     },
 
