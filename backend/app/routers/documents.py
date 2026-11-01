@@ -24,6 +24,10 @@ router = APIRouter(prefix="/api/documents", tags=["documents"])
 _DOCUMENT_COLUMNS = "id, document_name, status, error, chunk_count, created_at"
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
 
+# 同时解析/向量化的文档上限：批量上传时避免同时打满 MinerU 与 Embedding 配额
+_MAX_CONCURRENT_INGEST = 2
+_INGEST_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_INGEST)
+
 class _UploadTooLarge(Exception):
     """上传文件超过大小上限。"""
 
@@ -108,7 +112,7 @@ async def upload_document(
 @router.delete("/{doc_id}", status_code=204)
 async def delete_document(doc_id: Annotated[str, PathParam()]):
     """删除文档：向量数据库分块、业务库记录、上传文件的目录三处同步清理。"""
-    delete_document_vectors(doc_id)
+    await asyncio.to_thread(delete_document_vectors, doc_id)
 
     async with connect() as db:
         cursor = await db.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
@@ -151,7 +155,7 @@ async def retry_document(
     if cursor.rowcount == 0:
         raise HTTPException(status_code=409, detail="文档状态已变化，请刷新后重试")
 
-    delete_document_vectors(doc_id)  # 清掉可能残留的分块，避免重复入库
+    await asyncio.to_thread(delete_document_vectors, doc_id)  # 清掉可能残留的分块，避免重复入库
     background_tasks.add_task(_vectorize, doc_id, row["document_name"], file_path)
     return DocumentOut(
         id=doc_id,
@@ -165,26 +169,28 @@ async def retry_document(
 
 async def _vectorize(doc_id: str, document_name: str, file_path: Path):
     """后台向量化，完成后更新状态：ready / empty / failed。"""
-    try:
-        chunk_count = await ingest_document(doc_id, document_name, file_path)
-        status = "ready" if chunk_count else "empty"
-        async with connect() as db:
-            cursor = await db.execute(
-                "UPDATE documents SET status = ?, chunk_count = ? WHERE id = ?",
-                (status, chunk_count, doc_id),
-            )
-            await db.commit()
-        if cursor.rowcount == 0:
-            delete_document_vectors(doc_id)  # 向量化期间文档已被删除：清理刚写入的向量
-    except Exception as exc:
-        async with connect() as db:
-            await db.execute(
-                "UPDATE documents SET status = 'failed', error = ? WHERE id = ?",
-                (str(exc)[:500], doc_id),
-            )
-            await db.commit()
-        # 失败时可能已写入部分分块，必须清理，避免"失败文档"仍被检索到
+    async with _INGEST_SEMAPHORE:
         try:
-            await asyncio.to_thread(delete_document_vectors, doc_id)
-        except Exception:
-            pass  # 清理失败不应掩盖原始解析错误；启动对账会再次兜底
+            chunk_count = await ingest_document(doc_id, document_name, file_path)
+            status = "ready" if chunk_count else "empty"
+            async with connect() as db:
+                cursor = await db.execute(
+                    "UPDATE documents SET status = ?, chunk_count = ? WHERE id = ?",
+                    (status, chunk_count, doc_id),
+                )
+                await db.commit()
+            if cursor.rowcount == 0:
+                # 向量化期间文档已被删除：清理刚写入的向量
+                await asyncio.to_thread(delete_document_vectors, doc_id)
+        except Exception as exc:
+            async with connect() as db:
+                await db.execute(
+                    "UPDATE documents SET status = 'failed', error = ? WHERE id = ?",
+                    (str(exc)[:500], doc_id),
+                )
+                await db.commit()
+            # 失败时可能已写入部分分块，必须清理，避免"失败文档"仍被检索到
+            try:
+                await asyncio.to_thread(delete_document_vectors, doc_id)
+            except Exception:
+                pass  # 清理失败不应掩盖原始解析错误；启动对账会再次兜底
