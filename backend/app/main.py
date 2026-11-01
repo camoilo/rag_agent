@@ -1,5 +1,6 @@
 """FastAPI 入口：应用实例、中间件、健康检查与全局统计。"""
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.core.agent import close_agent, init_agent
 from app.core.document_processing import allowed_suffixes, upload_limits
-from app.db import connect, fail_interrupted_documents, init_db
+from app.core.vector_store import delete_document_vectors
+from app.db import connect, fail_interrupted_documents, failed_document_ids, init_db
 from app.routers import chat, documents, sessions
 
 
@@ -15,7 +17,14 @@ from app.routers import chat, documents, sessions
 async def lifespan(_: FastAPI):
     """应用生命周期：启动时初始化业务库与记忆库，停止时关闭记忆连接。"""
     await init_db()
-    await fail_interrupted_documents()
+    # 清理中断与失败的残留分块后再启动 agent，避免失败文档的内容仍被检索到
+    interrupted_ids = await fail_interrupted_documents()
+    stale_ids = dict.fromkeys([*interrupted_ids, *await failed_document_ids()])
+    for doc_id in stale_ids:
+        try:
+            await asyncio.to_thread(delete_document_vectors, doc_id)
+        except Exception:
+            pass  # 单个清理失败不阻塞启动
     await init_agent()
     try:
         yield

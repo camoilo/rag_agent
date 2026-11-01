@@ -183,3 +183,8 @@ async def _vectorize(doc_id: str, document_name: str, file_path: Path):
                 (str(exc)[:500], doc_id),
             )
             await db.commit()
+        # 失败时可能已写入部分分块，必须清理，避免"失败文档"仍被检索到
+        try:
+            await asyncio.to_thread(delete_document_vectors, doc_id)
+        except Exception:
+            pass  # 清理失败不应掩盖原始解析错误；启动对账会再次兜底

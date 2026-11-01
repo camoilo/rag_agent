@@ -40,48 +40,53 @@ async def chat(request: ChatRequest) -> StreamingResponse:
 
 
 async def _stream(session_id: str, question: str) -> AsyncIterator[str]:
-    """执行 agent 并以 SSE 输出，然后落库。"""
+    """执行 agent 并以 SSE 输出，然后落库；取消或异常时不写入半截回答。"""
     started = time.perf_counter()
     collected = CitationCollector()
     token = citations_var.set(collected)  # 本轮请求的引用收集器
     parts: list[str] = []
-    usage: dict = {}
+    prompt_tokens = 0
+    completion_tokens = 0
+    completed = False
     try:
         async for chunk, _metadata in get_agent().astream(
             input={"messages": [HumanMessage(content=question)]},
             config={"configurable": {"thread_id": session_id}},
             stream_mode="messages",
         ):
-            # 只处理 AI 消息块：转发正文增量（排除工具调用的决策块与 ToolMessage），
-            # 并取末尾块上的流式用量
+            # 只处理 AI 消息块：转发正文增量，累加各次模型调用的流式用量（检索决策与最终生成是两次独立的调用）
             if isinstance(chunk, AIMessageChunk):
                 if isinstance(chunk.content, str) and chunk.content:
                     parts.append(chunk.content)
                     yield _event({"type": "token", "content": chunk.content})
                 if chunk.usage_metadata:
-                    usage = dict(chunk.usage_metadata)
+                    prompt_tokens += chunk.usage_metadata.get("input_tokens", 0)
+                    completion_tokens += chunk.usage_metadata.get("output_tokens", 0)
 
+        completed = True  # 生成已完成：即使推送末帧时客户端断开，也应正常落库。
         answer = "".join(parts)
         yield _event({
             "type": "done",
             "citations": [c.model_dump() for c in _cited_citations(answer, collected.items)],
             "elapsed_ms": _elapsed_ms(started),
-            "prompt_tokens": usage.get("input_tokens", 0),
-            "completion_tokens": usage.get("output_tokens", 0),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
         })
     except Exception as exc:
         yield _event({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
     finally:
         citations_var.reset(token)
-        answer = "".join(parts)
-        await _save_assistant(
-            session_id,
-            answer=answer,
-            citations=_cited_citations(answer, collected.items),
-            elapsed_ms=_elapsed_ms(started),
-            prompt_tokens=usage.get("input_tokens", 0),
-            completion_tokens=usage.get("output_tokens", 0),
-        )
+        # 仅正常生成完毕时落库：用户停止、断线或异常时丢弃半截回答，避免消息表有记录而 LangGraph 记忆中没有。
+        if completed:
+            answer = "".join(parts)
+            await _save_assistant(
+                session_id,
+                answer=answer,
+                citations=_cited_citations(answer, collected.items),
+                elapsed_ms=_elapsed_ms(started),
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
 
 
 _CITATION_MARK = re.compile(r"\[([0-9]+)\]")

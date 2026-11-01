@@ -62,6 +62,9 @@ async def connect():
     db = await aiosqlite.connect(APP_DB)
     db.row_factory = aiosqlite.Row
     try:
+        # 并发写入时排队等待而非直接报 database is locked
+        await db.execute("PRAGMA busy_timeout=5000")
+        await db.execute("PRAGMA synchronous=NORMAL")  # WAL 下的推荐级别
         yield db
     finally:
         await db.close()
@@ -71,18 +74,32 @@ async def init_db():
     """启动时创建数据目录与全部表。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     async with connect() as db:
+        await db.execute("PRAGMA journal_mode=WAL")  # 持久化到库文件，提升读写并发
         await db.executescript(SCHEMA)
         await db.commit()
 
 
-async def fail_interrupted_documents():
-    """启动对账：上一进程遗留的 processing 文档已无任务执行，统一标记为失败。"""
+async def fail_interrupted_documents() -> list[str]:
+    """启动对账：遗留 processing 文档置为失败，并返回其 id 供清理残留向量。"""
     async with connect() as db:
+        rows = await (
+            await db.execute("SELECT id FROM documents WHERE status = 'processing'")
+        ).fetchall()
         await db.execute(
             "UPDATE documents SET status = 'failed', error = ? WHERE status = 'processing'",
             ("服务重启导致解析中断，请重新解析或重新上传",),
         )
         await db.commit()
+    return [row["id"] for row in rows]
+
+
+async def failed_document_ids() -> list[str]:
+    """全部失败文档 id：失败文档不应保留向量，启动时需清理其残留分块。"""
+    async with connect() as db:
+        rows = await (
+            await db.execute("SELECT id FROM documents WHERE status = 'failed'")
+        ).fetchall()
+    return [row["id"] for row in rows]
 
 
 async def session_exists(session_id: str) -> bool:
