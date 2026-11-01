@@ -4,7 +4,7 @@
  */
 import { defineStore } from 'pinia'
 
-import { deleteDocument, listDocuments, uploadDocument } from '@/api/http'
+import { deleteDocument, listDocuments, retryDocument, uploadDocument } from '@/api/http'
 
 const POLL_INTERVAL_MS = 3000
 
@@ -34,6 +34,14 @@ export const useDocumentsStore = defineStore('documents', {
     async remove(id) {
       await deleteDocument(id)
       this.documents = this.documents.filter((d) => d.id !== id)
+    },
+
+    // 重新解析失败文档：用后端返回的 processing 记录原位替换，并恢复轮询
+    async retry(id) {
+      const doc = await retryDocument(id)
+      const index = this.documents.findIndex((d) => d.id === id)
+      if (index !== -1) this.documents[index] = doc
+      this.ensurePolling()
     },
 
     // 存在 processing 文档时启动 3s 轮询，全终态自动停止；幂等

@@ -38,3 +38,4 @@ export const uploadDocument = (file, onUploadProgress) => {
   return http.post('/documents', form, { timeout: 120000, onUploadProgress }).then((r) => r.data)
 }
 export const deleteDocument = (id) => http.delete(`/documents/${id}`)
+export const retryDocument = (id) => http.post(`/documents/${id}/retry`).then((r) => r.data)

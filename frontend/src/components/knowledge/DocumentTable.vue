@@ -1,7 +1,7 @@
 <script setup>
-// 文档表格：状态 tag / 失败原因 tooltip / 删除确认
-import { ElMessageBox } from 'element-plus'
-import { Delete } from '@element-plus/icons-vue'
+// 文档表格：状态 tag / 失败原因 tooltip / 重新解析 / 删除确认
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Delete, Refresh } from '@element-plus/icons-vue'
 import { useDocumentsStore } from '@/stores/documents'
 
 defineProps({
@@ -16,6 +16,15 @@ const STATUS_MAP = {
   ready: { type: 'success', label: '已就绪' },
   empty: { type: 'info', label: '空文档' },
   failed: { type: 'danger', label: '失败' },
+}
+
+async function handleRetry(doc) {
+  try {
+    await documentsStore.retry(doc.id)
+    ElMessage.success('已开始重新解析')
+  } catch {
+    // 失败提示已由 http 拦截器统一弹出
+  }
 }
 
 async function handleRemove(doc) {
@@ -66,8 +75,17 @@ async function handleRemove(doc) {
 
     <el-table-column prop="created_at" label="上传时间" width="180" />
 
-    <el-table-column label="操作" width="80" align="center">
+    <el-table-column label="操作" width="150" align="center">
       <template #default="{ row }">
+        <el-button
+          v-if="row.status === 'failed'"
+          link
+          type="primary"
+          :icon="Refresh"
+          @click="handleRetry(row)"
+        >
+          重试
+        </el-button>
         <el-button link type="danger" :icon="Delete" @click="handleRemove(row)">删除</el-button>
       </template>
     </el-table-column>
