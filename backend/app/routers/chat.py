@@ -7,6 +7,7 @@
 """
 
 import json
+import re
 import time
 from collections.abc import AsyncIterator
 
@@ -60,9 +61,10 @@ async def _stream(session_id: str, question: str) -> AsyncIterator[str]:
                 if chunk.usage_metadata:
                     usage = dict(chunk.usage_metadata)
 
+        answer = "".join(parts)
         yield _event({
             "type": "done",
-            "citations": [c.model_dump() for c in collected.items],
+            "citations": [c.model_dump() for c in _cited_citations(answer, collected.items)],
             "elapsed_ms": _elapsed_ms(started),
             "prompt_tokens": usage.get("input_tokens", 0),
             "completion_tokens": usage.get("output_tokens", 0),
@@ -71,14 +73,24 @@ async def _stream(session_id: str, question: str) -> AsyncIterator[str]:
         yield _event({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
     finally:
         citations_var.reset(token)
+        answer = "".join(parts)
         await _save_assistant(
             session_id,
-            answer="".join(parts),
-            citations=collected.items,
+            answer=answer,
+            citations=_cited_citations(answer, collected.items),
             elapsed_ms=_elapsed_ms(started),
             prompt_tokens=usage.get("input_tokens", 0),
             completion_tokens=usage.get("output_tokens", 0),
         )
+
+
+_CITATION_MARK = re.compile(r"\[([0-9]+)\]")
+
+
+def _cited_citations(answer: str, citations: list[Citation]) -> list[Citation]:
+    """只保留答案中实际引用到的来源；答案未标注 [n] 时回退为全部来源。"""
+    cited = [c for c in citations if c.index in {int(n) for n in _CITATION_MARK.findall(answer)}]
+    return cited or citations
 
 
 def _event(payload: dict) -> str:
