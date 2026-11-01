@@ -1,6 +1,7 @@
 """混合检索：向量召回 + BM25 关键词召回，RRF 融合。"""
 
 import hashlib
+import heapq
 import jieba
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
@@ -43,9 +44,10 @@ _bm25_index: _BM25Index | None = None
 def _get_bm25_index() -> _BM25Index:
     """取 BM25 索引；未构建或构建过期时从 Chroma 全量重建。"""
     global _bm25_index
-    result = get_vector_store().get()
-    fingerprint = hash(tuple(result["ids"]))
+    # 只取 id 算指纹（ids 始终随结果返回），避免每次检索都拉取全部分块正文与元数据
+    fingerprint = hash(tuple(get_vector_store().get(include=[])["ids"]))
     if _bm25_index is None or _bm25_index.fingerprint != fingerprint:
+        result = get_vector_store().get()
         corpus = [
             Document(page_content=text, metadata=metadata or {})
             for text, metadata in zip(result["documents"], result["metadatas"])
@@ -60,8 +62,9 @@ def _bm25_search(query: str, k: int) -> list[Document]:
     if index.bm25 is None:
         return []
     scores = index.bm25.get_scores(_tokenize(query))
-    ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
-    return [index.texts[i] for i in ranked[:k] if scores[i] > 0]
+    # 只取分数最高的 k 个，避免对全库做完整排序
+    ranked = heapq.nlargest(k, range(len(scores)), key=scores.__getitem__)
+    return [index.texts[i] for i in ranked if scores[i] > 0]
 
 
 def _vector_search(query: str, k: int) -> list[Document]:
