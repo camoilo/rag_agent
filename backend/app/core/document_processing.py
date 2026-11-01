@@ -1,5 +1,4 @@
-"""文档处理：解析 → 切分 → 向量化入库。
-"""
+"""文档处理：解析 → 切分 → 向量化入库。"""
 
 import asyncio
 from pathlib import Path
@@ -10,6 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import get_settings
 from app.core.vector_store import get_vector_store
+
 
 # MinerU 无法解析的纯文本格式，直接本地读取
 LOCAL_SUFFIXES = {".txt", ".md"}
@@ -26,6 +26,12 @@ MINERU_SUFFIXES: dict[str, set[str]] = {
     },
 }
 
+# MinerU 各解析模式官方限制：单文件大小（字节）与页数
+MINERU_UPLOAD_LIMITS: dict[str, tuple[int, int]] = {
+    "precision": (200 * 1024 * 1024, 200),
+    "flash": (10 * 1024 * 1024, 20),
+}
+
 
 def _mineru_mode() -> str:
     """当前解析模式；配置非法时立即报错。"""
@@ -38,6 +44,11 @@ def _mineru_mode() -> str:
 def allowed_suffixes() -> set[str]:
     """当前解析模式允许上传的格式（含本地读取的纯文本）。"""
     return MINERU_SUFFIXES[_mineru_mode()] | LOCAL_SUFFIXES
+
+
+def upload_limits() -> tuple[int, int]:
+    """当前解析模式的单文件大小上限（字节）与页数上限。"""
+    return MINERU_UPLOAD_LIMITS[_mineru_mode()]
 
 
 def _load_documents(file_path: Path) -> list[Document]:

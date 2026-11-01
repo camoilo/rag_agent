@@ -39,14 +39,12 @@ class Settings(BaseSettings):
 
     # 文档解析（MinerU）
     mineru_token: str = ""            # 在.env 中配置，仅 precision 模式生效
-    mineru_mode: str = "precision"    # precision（需 token，单文件 ≤200MB 且 ≤200 页）/ flash（免 token，单文件 ≤10MB 且 ≤20 页）
+    mineru_mode: str = "precision"    # precision（需 token）/ flash（免 token）
     mineru_language: str = "ch"       # 文档语言，留空默认中文
     mineru_ocr: bool = False          # 扫描件需开启 OCR；仅 precision 生效
     mineru_formula: bool = True       # 公式识别；仅 precision 生效
     mineru_table: bool = True         # 表格识别；仅 precision 生效
     mineru_timeout: int = 600         # 单文件解析等待上限（秒）
-    # 上传限制
-    max_upload_bytes: int = 200 * 1024 * 1024  # 200MB
 
     # RAG 参数
     chunk_size: int = 800

@@ -1,52 +1,46 @@
 <script setup>
 // 上传卡片：拖拽 / 点击选择，前端校验（类型、大小、空文件）+ 逐文件进度条
 // upload 为父级传入的 store action：(file, onUploadProgress) => Promise
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
+import { getUploadConfig } from '@/api/http'
 
 const props = defineProps({
   upload: { type: Function, required: true },
 })
 
-// 后端按当前解析模式校验，此处为 MinerU 各模式支持格式的并集
-const ALLOWED_SUFFIXES = [
-  '.pdf',
-  '.txt',
-  '.md',
-  '.doc',
-  '.docx',
-  '.ppt',
-  '.pptx',
-  '.xls',
-  '.xlsx',
-  '.html',
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.jp2',
-  '.webp',
-  '.gif',
-  '.bmp',
-]
-const MAX_SIZE_BYTES = 200 * 1024 * 1024
-const MAX_SIZE_MB = MAX_SIZE_BYTES / (1024 * 1024)
+// 上传约束由后端 /api/config 下发，随当前解析模式变化
+const config = ref(null)
+onMounted(async () => {
+  try {
+    config.value = await getUploadConfig()
+  } catch {
+    // 获取失败时退化为服务端校验（错误提示已由 http 拦截器处理）
+  }
+})
+
+const accept = computed(() => config.value?.allowed_suffixes.join(',') ?? undefined)
+const maxSizeMb = computed(() =>
+  config.value ? Math.floor(config.value.max_upload_bytes / (1024 * 1024)) : null,
+)
 
 // 本地上传任务列表：{ name, percent }，上传期间显示进度条
 const tasks = ref([])
 
 function validate(file) {
   const name = file.name.toLowerCase()
-  if (!ALLOWED_SUFFIXES.some((s) => name.endsWith(s))) {
-    ElMessage.error(`「${file.name}」不支持的格式，仅支持 ${ALLOWED_SUFFIXES.join(' / ')}`)
+  const rules = config.value
+  if (rules && !rules.allowed_suffixes.some((s) => name.endsWith(s))) {
+    ElMessage.error(`「${file.name}」不支持的格式，仅支持 ${rules.allowed_suffixes.join(' / ')}`)
     return false
   }
   if (file.size === 0) {
     ElMessage.error(`「${file.name}」是空文件`)
     return false
   }
-  if (file.size > MAX_SIZE_BYTES) {
-    ElMessage.error(`「${file.name}」超过 ${MAX_SIZE_MB}MB 上限`)
+  if (rules && file.size > rules.max_upload_bytes) {
+    ElMessage.error(`「${file.name}」超过 ${maxSizeMb.value}MB 上限`)
     return false
   }
   return true
@@ -72,7 +66,7 @@ async function handleUpload({ file }) {
     <el-upload
       drag
       multiple
-      :accept="ALLOWED_SUFFIXES.join(',')"
+      :accept="accept"
       :show-file-list="false"
       :http-request="handleUpload"
     >
@@ -80,7 +74,7 @@ async function handleUpload({ file }) {
         <el-icon :size="36" class="upload__icon"><UploadFilled /></el-icon>
         <p class="upload__text">拖拽文件到此处，或点击选择</p>
         <p class="upload__hint">
-          支持 PDF / Office 文档 / 图片 / txt / md，单个不超过 {{ MAX_SIZE_MB }}MB
+          支持 PDF / Office 文档 / 图片 / txt / md<template v-if="config">，单个不超过 {{ maxSizeMb }}MB、{{ config.max_pages }} 页</template>
         </p>
       </div>
     </el-upload>

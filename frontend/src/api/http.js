@@ -19,6 +19,7 @@ http.interceptors.response.use(
 // ---- 系统 ----
 export const getHealth = () => http.get('/health').then((r) => r.data)
 export const getStats = () => http.get('/stats').then((r) => r.data)
+export const getUploadConfig = () => http.get('/config').then((r) => r.data)
 
 // ---- 会话 ----
 export const listSessions = () => http.get('/sessions').then((r) => r.data)

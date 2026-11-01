@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.core.agent import close_agent, init_agent
+from app.core.document_processing import allowed_suffixes, upload_limits
 from app.db import connect, fail_interrupted_documents, init_db
 from app.routers import chat, documents, sessions
 
@@ -45,6 +46,18 @@ app.include_router(chat.router)
 async def health() -> dict[str, str]:
     """健康检查。"""
     return {"status": "ok"}
+
+
+@app.get("/api/config")
+async def upload_config() -> dict:
+    """前端上传约束：当前解析模式、允许格式、大小与页数上限。"""
+    max_bytes, max_pages = upload_limits()
+    return {
+        "mineru_mode": get_settings().mineru_mode,
+        "allowed_suffixes": sorted(allowed_suffixes()),
+        "max_upload_bytes": max_bytes,
+        "max_pages": max_pages,
+    }
 
 
 @app.get("/api/stats")
