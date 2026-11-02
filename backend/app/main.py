@@ -4,11 +4,12 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.core.agent import close_agent, init_agent
 from app.core.document_processing import allowed_suffixes, upload_limits
-from app.core.vector_store import delete_document_vectors
+from app.core.vector_store import delete_document_vectors, get_vector_store
 from app.db import connect, fail_interrupted_documents, failed_document_ids, init_db
 from app.routers import chat, documents, sessions
 
@@ -52,9 +53,27 @@ app.include_router(chat.router)
 
 
 @app.get("/api/health")
-async def health() -> dict[str, str]:
-    """健康检查。"""
-    return {"status": "ok"}
+async def health() -> JSONResponse:
+    """依赖可用性检查：业务库与向量库任一异常时返回 503。"""
+    checks: dict[str, str] = {}
+    try:
+        async with connect() as db:
+            await db.execute("SELECT 1")
+        checks["database"] = "ok"
+    except Exception:
+        checks["database"] = "error"
+    try:
+        # Chroma 客户端同步实现
+        await asyncio.to_thread(get_vector_store().get, limit=1, include=[])
+        checks["vector_store"] = "ok"
+    except Exception:
+        checks["vector_store"] = "error"
+
+    healthy = all(value == "ok" for value in checks.values())
+    return JSONResponse(
+        status_code=200 if healthy else 503,
+        content={"status": "ok" if healthy else "error", "checks": checks},
+    )
 
 
 @app.get("/api/config")

@@ -139,30 +139,30 @@ docker compose up -d --build
 
 ## API 概览
 
-| 方法   | 路径                          | 说明                                         |
-|--------|-------------------------------|----------------------------------------------|
-| GET    | `/api/health`                 | 健康检查                                     |
-| GET    | `/api/stats`                  | 用量统计                                     |
-| GET    | `/api/config`                 | 上传约束（当前模式 / 后缀 / 大小与页数上限） |
-| POST   | `/api/sessions`               | 新建会话                                     |
-| GET    | `/api/sessions`               | 会话列表                                     |
-| PATCH  | `/api/sessions/{id}`          | 重命名                                       |
-| DELETE | `/api/sessions/{id}`          | 删除（联动清空记忆）                         |
-| GET    | `/api/sessions/{id}/messages` | 历史消息                                     |
-| POST   | `/api/documents`              | 上传文档（multipart）                        |
-| GET    | `/api/documents`              | 文档列表                                     |
-| POST   | `/api/documents/{id}/retry`   | 重新解析失败文档（需原文件）                 |
-| DELETE | `/api/documents/{id}`         | 删除（联动清理向量与文件）                   |
-| POST   | `/api/chat`                   | SSE 流式问答                                 |
+| 方法   | 路径                          | 说明                                            |
+|--------|-------------------------------|-------------------------------------------------|
+| GET    | `/api/health`                 | 依赖可用性检查（业务库 / 向量库，异常返回 503） |
+| GET    | `/api/stats`                  | 用量统计                                        |
+| GET    | `/api/config`                 | 上传约束（当前模式 / 后缀 / 大小与页数上限）    |
+| POST   | `/api/sessions`               | 新建会话                                        |
+| GET    | `/api/sessions`               | 会话列表                                        |
+| PATCH  | `/api/sessions/{id}`          | 重命名                                          |
+| DELETE | `/api/sessions/{id}`          | 删除（联动清空记忆）                            |
+| GET    | `/api/sessions/{id}/messages` | 历史消息                                        |
+| POST   | `/api/documents`              | 上传文档（multipart）                           |
+| GET    | `/api/documents`              | 文档列表                                        |
+| POST   | `/api/documents/{id}/retry`   | 重新解析失败文档（需原文件）                    |
+| DELETE | `/api/documents/{id}`         | 删除（联动清理向量与文件）                      |
+| POST   | `/api/chat`                   | SSE 流式问答                                    |
 
 交互式文档：后端启动后访问 `http://localhost:8000/docs`。
 
 ## 设计要点
 
-- **记忆与业务隔离**：会话记忆存独立 SQLite（`agent_memory.db`），与业务库（`app.db`）物理分离，避免 SQLite 锁竞争；`thread_id = session_id`，会话间记忆互不可见
-- **模型自主检索**：知识检索封装为 `knowledge_search` 工具，由模型决定是否调用；系统提示词要求先检索再回答、引用标注 `[n]`、无结果时如实说明
-- **删除即清理**：删会话 → 同步清空该会话记忆；删文档 → 校验向量化进行中状态防止竞态，同步清理业务记录、向量块与上传原件
-- **解析交给 MinerU**：文档经 MinerU 在线 API 解析为 Markdown（表格、公式一并保留）后入库，文件会上传至 mineru.net；默认 `precision` 精准解析（需 `MINERU_TOKEN`，单文件 ≤ 200MB / ≤ 200 页），可切 `flash` 免 token 快速解析（单文件 ≤ 10MB / ≤ 20 页，支持 xls / xlsx，但不支持 doc / ppt / html）；`.txt` / `.md` 不经 MinerU，本地直接读取
+- **记忆与业务隔离**：会话记忆存独立 SQLite（`agent_memory.db`），与业务库（`app.db`）分离，避免锁竞争，会话间记忆互不可见。
+- **模型自主检索**：知识检索封装为 `knowledge_search` 工具，由模型决定是否调用；系统提示词要求先检索再回答、引用标注 `[n]`、无结果时如实说明。
+- **删除即清理**：删会话 → 同步清空该会话记忆；删文档 → 直接清理业务记录、向量块与上传原件。
+- **解析交给 MinerU**：文档经 MinerU 在线 API 解析为 Markdown（表格、公式一并保留）后入库，文件会上传至 mineru.net。
 
 ## License
 
