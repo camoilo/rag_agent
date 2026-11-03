@@ -147,7 +147,7 @@ docker compose up -d --build
 | GET    | `/api/stats`                  | 用量统计                                        |
 | GET    | `/api/config`                 | 上传约束（当前模式 / 后缀 / 大小与页数上限）    |
 | POST   | `/api/sessions`               | 新建会话                                        |
-| GET    | `/api/sessions`               | 会话列表                                        |
+| GET    | `/api/sessions`               | 会话列表（按最近活动时间倒序）                  |
 | PATCH  | `/api/sessions/{id}`          | 重命名                                          |
 | DELETE | `/api/sessions/{id}`          | 删除（联动清空记忆）                            |
 | GET    | `/api/sessions/{id}/messages` | 历史消息                                        |
@@ -161,8 +161,8 @@ docker compose up -d --build
 
 ## 设计要点
 
-- **记忆与业务隔离**：会话记忆存独立 SQLite（`agent_memory.db`），与业务库（`app.db`）分离，避免锁竞争，会话间记忆互不可见。
 - **长会话自动压缩**：会话上下文估算超过 `MEMORY_TRIGGER_TOKENS` 时，将早期对话压缩为摘要并仅保留最近 `MEMORY_KEEP_MESSAGES` 条消息，避免触碰模型上下文上限；业务库历史消息仍完整保留。
+- **整轮落库**：仅当回答完整生成后，才把 user 消息、assistant 消息与 token 用量在同一事务写入，避免出现回答为空的半轮记录。
 - **模型自主检索**：知识检索封装为 `knowledge_search` 工具，由模型决定是否调用；系统提示词要求先检索再回答、引用标注 `[n]`、无结果时如实说明。
 - **删除即清理**：删会话 → 同步清空该会话记忆；删文档 → 直接清理业务记录、向量块与上传原件。
 - **解析交给 MinerU**：文档经 MinerU 在线 API 解析为 Markdown（表格、公式一并保留）后入库，文件会上传至 mineru.net。

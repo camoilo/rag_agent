@@ -17,10 +17,16 @@ _SESSION_COLUMNS = "id, title, created_at"
 
 @router.get("")
 async def list_sessions() -> list[SessionOut]:
-    """全部会话，新创建的在前。"""
+    """全部会话，按最近活动时间倒序：新建或刚完成问答的会话排在前面。"""
     async with connect() as db:
         rows = await (
-            await db.execute(f"SELECT {_SESSION_COLUMNS} FROM sessions ORDER BY created_at DESC, rowid DESC")
+            await db.execute(
+                f"SELECT {_SESSION_COLUMNS} FROM sessions s"
+                " ORDER BY COALESCE("
+                "   (SELECT MAX(m.created_at) FROM messages m WHERE m.session_id = s.id),"
+                "   s.created_at"
+                " ) DESC, s.rowid DESC"
+            )
         ).fetchall()
     return [SessionOut.model_validate(dict(row)) for row in rows]
 

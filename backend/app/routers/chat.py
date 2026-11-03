@@ -29,9 +29,6 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     if not await session_exists(request.session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
 
-    # 若是首条消息，同时将其设为会话标题
-    await _save_user_message(request.session_id, request.question)
-
     return StreamingResponse(
         _stream(request.session_id, request.question),
         media_type="text/event-stream",
@@ -76,11 +73,12 @@ async def _stream(session_id: str, question: str) -> AsyncIterator[str]:
         yield _event({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
     finally:
         citations_var.reset(token)
-        # 仅正常生成完毕时落库：用户停止、断线或异常时丢弃半截回答，避免消息表有记录而 LangGraph 记忆中没有。
+        # 仅完整生成后一次性提交整轮问答：停止、断线或异常时不产生"有问无答"的半轮记录
         if completed:
             answer = "".join(parts)
-            await _save_assistant(
+            await _save_turn(
                 session_id,
+                question=question,
                 answer=answer,
                 citations=_cited_citations(answer, collected.items),
                 elapsed_ms=_elapsed_ms(started),
@@ -107,42 +105,36 @@ def _elapsed_ms(started: float) -> int:
     return int((time.perf_counter() - started) * 1000)
 
 
-async def _save_user_message(session_id: str, question: str) -> None:
-    """落库用户消息；首条消息同时更新会话标题。"""
-    async with connect() as db:
-        user_count = (
-            await (
-                await db.execute(
-                    "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'user'",
-                    (session_id,),
-                )
-            ).fetchone()
-        )[0]
-        await db.execute(
-            "INSERT INTO messages (session_id, role, content, created_at)"
-            " SELECT ?, 'user', ?, ?"
-            " WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)",
-            (session_id, question, now(), session_id),
-        )
-        if user_count == 0:
-            await db.execute(
-                "UPDATE sessions SET title = ? WHERE id = ?", (question[:30], session_id)
-            )
-        await db.commit()
-
-
-async def _save_assistant(
+async def _save_turn(
     session_id: str,
+    question: str,
     answer: str,
     citations: list[Citation],
     elapsed_ms: int,
     prompt_tokens: int,
     completion_tokens: int,
 ) -> None:
-    """落库 assistant 消息（含引用）与 token 用量；内容为空时跳过对应行。"""
+    """
+    一次性提交一轮问答：用户消息、assistant 消息与 token 用量在同一事务中写入。
+    回答为空时只记录用量，不写消息，避免留下有问无答的记录。
+    """
     settings = get_settings()
     async with connect() as db:
         if answer:
+            user_count = (
+                await (
+                    await db.execute(
+                        "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'user'",
+                        (session_id,),
+                    )
+                ).fetchone()
+            )[0]
+            await db.execute(
+                "INSERT INTO messages (session_id, role, content, created_at)"
+                " SELECT ?, 'user', ?, ?"
+                " WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?)",
+                (session_id, question, now(), session_id),
+            )
             await db.execute(
                 "INSERT INTO messages (session_id, role, content, citations, created_at)"
                 " SELECT ?, 'assistant', ?, ?, ?"
@@ -155,6 +147,10 @@ async def _save_assistant(
                     session_id,
                 ),
             )
+            if user_count == 0:
+                await db.execute(
+                    "UPDATE sessions SET title = ? WHERE id = ?", (question[:30], session_id)
+                )
         if prompt_tokens or completion_tokens:
             await db.execute(
                 "INSERT INTO usage_log (prompt_tokens, completion_tokens, elapsed_ms, model, created_at)"
