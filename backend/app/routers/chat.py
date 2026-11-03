@@ -7,6 +7,7 @@
 """
 
 import json
+import logging
 import re
 import time
 from collections.abc import AsyncIterator
@@ -21,6 +22,7 @@ from app.db import connect, now, session_exists
 from app.schemas import ChatRequest, Citation
 
 router = APIRouter(prefix="/api", tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/chat")
@@ -28,6 +30,7 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     """流式问答。会话不存在时在建立流之前返回 404。"""
     if not await session_exists(request.session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
+    logger.info("收到问答请求 session=%s question_len=%d", request.session_id, len(request.question))
 
     return StreamingResponse(
         _stream(request.session_id, request.question),
@@ -45,6 +48,8 @@ async def _stream(session_id: str, question: str) -> AsyncIterator[str]:
     prompt_tokens = 0
     completion_tokens = 0
     completed = False
+    answer = ""
+    citations: list[Citation] = []
     try:
         async for chunk, _metadata in get_agent().astream(
             input={"messages": [HumanMessage(content=question)]},
@@ -62,28 +67,39 @@ async def _stream(session_id: str, question: str) -> AsyncIterator[str]:
 
         completed = True  # 生成已完成：即使推送末帧时客户端断开，也应正常落库。
         answer = "".join(parts)
+        citations = _cited_citations(answer, collected.items)
         yield _event({
             "type": "done",
-            "citations": [c.model_dump() for c in _cited_citations(answer, collected.items)],
+            "citations": [c.model_dump() for c in citations],
             "elapsed_ms": _elapsed_ms(started),
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
         })
     except Exception as exc:
+        logger.exception("问答失败 session=%s", session_id)
         yield _event({"type": "error", "detail": f"{type(exc).__name__}: {exc}"})
     finally:
         citations_var.reset(token)
         # 仅完整生成后一次性提交整轮问答：停止、断线或异常时不产生"有问无答"的半轮记录
         if completed:
-            answer = "".join(parts)
-            await _save_turn(
+            try:
+                await _save_turn(
+                    session_id,
+                    question=question,
+                    answer=answer,
+                    citations=citations,
+                    elapsed_ms=_elapsed_ms(started),
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
+            except Exception:
+                logger.exception("问答落库失败 session=%s", session_id)
+        else:
+            logger.info(
+                "问答未完成 session=%s elapsed=%dms partial_len=%d（客户端中断或异常）",
                 session_id,
-                question=question,
-                answer=answer,
-                citations=_cited_citations(answer, collected.items),
-                elapsed_ms=_elapsed_ms(started),
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+                _elapsed_ms(started),
+                len("".join(parts)),
             )
 
 
@@ -158,3 +174,12 @@ async def _save_turn(
                 (prompt_tokens, completion_tokens, elapsed_ms, settings.chat_model, now()),
             )
         await db.commit()
+    logger.info(
+        "问答落库完成 session=%s answer_len=%d citations=%d prompt_tokens=%d completion_tokens=%d elapsed=%dms",
+        session_id,
+        len(answer),
+        len(citations),
+        prompt_tokens,
+        completion_tokens,
+        elapsed_ms,
+    )

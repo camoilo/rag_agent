@@ -1,6 +1,7 @@
 """会话管理路由：列表 / 新建 / 重命名 / 删除 / 历史消息。"""
 
 import json
+import logging
 import uuid
 from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path
@@ -11,6 +12,7 @@ from app.schemas import Citation, MessageOut, SessionOut, SessionRenameRequest
 
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+logger = logging.getLogger(__name__)
 
 _SESSION_COLUMNS = "id, title, created_at"
 
@@ -41,6 +43,7 @@ async def create_session() -> SessionOut:
             (session.id, session.title, session.created_at),
         )
         await db.commit()
+    logger.info("新建会话 id=%s", session.id)
     return session
 
 
@@ -84,6 +87,7 @@ async def rename_session(session_id: Annotated[str, Path()], request: SessionRen
                 f"SELECT {_SESSION_COLUMNS} FROM sessions WHERE id = ?", (session_id,)
             )
         ).fetchone()
+    logger.info("重命名会话 id=%s title=%s", session_id, request.title)
     return SessionOut.model_validate(dict(row))
 
 
@@ -96,4 +100,9 @@ async def delete_session(session_id: Annotated[str, Path()]):
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="会话不存在")  # 未commit，messages的删除会回滚
         await db.commit()
-    await get_memory_saver().adelete_thread(session_id)
+    try:
+        await get_memory_saver().adelete_thread(session_id)
+    except Exception:
+        logger.exception("删除会话 id=%s 成功，但清理记忆失败", session_id)
+    else:
+        logger.info("删除会话 id=%s（业务记录与记忆已清理）", session_id)

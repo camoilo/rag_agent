@@ -1,6 +1,7 @@
 """FastAPI 入口：应用实例、中间件、健康检查与全局统计。"""
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,9 +15,22 @@ from app.db import connect, fail_interrupted_documents, failed_document_ids, ini
 from app.routers import chat, documents, sessions
 
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+# 降低第三方 HTTP 客户端与向量库的噪声日志
+for noisy_logger in ("httpx", "httpcore", "chromadb"):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
+
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """应用生命周期：启动时初始化业务库与记忆库，停止时关闭记忆连接。"""
+    logger.info("应用启动：初始化业务数据库")
     await init_db()
     # 清理中断与失败的残留分块后再启动 agent，避免失败文档的内容仍被检索到
     interrupted_ids = await fail_interrupted_documents()
@@ -24,13 +38,19 @@ async def lifespan(_: FastAPI):
     for doc_id in stale_ids:
         try:
             await asyncio.to_thread(delete_document_vectors, doc_id)
-        except Exception:
-            pass  # 单个清理失败不阻塞启动
+        except Exception as exc:
+            logger.warning("启动清理失败文档向量失败 doc_id=%s: %s", doc_id, exc)
+    if interrupted_ids:
+        logger.info("启动对账：%d 个中断文档已重置为 failed", len(interrupted_ids))
+    if stale_ids:
+        logger.info("启动对账：尝试清理 %d 个失败文档的残留向量", len(stale_ids))
     await init_agent()
+    logger.info("应用启动完成：agent 与记忆库已就绪")
     try:
         yield
     finally:
         await close_agent()
+        logger.info("应用已停止")
 
 
 app = FastAPI(
@@ -60,13 +80,15 @@ async def health() -> JSONResponse:
         async with connect() as db:
             await db.execute("SELECT 1")
         checks["database"] = "ok"
-    except Exception:
+    except Exception as exc:
+        logger.warning("健康检查：业务数据库不可用: %s", exc)
         checks["database"] = "error"
     try:
         # Chroma 客户端同步实现
         await asyncio.to_thread(get_vector_store().get, limit=1, include=[])
         checks["vector_store"] = "ok"
-    except Exception:
+    except Exception as exc:
+        logger.warning("健康检查：向量库不可用: %s", exc)
         checks["vector_store"] = "error"
 
     healthy = all(value == "ok" for value in checks.values())

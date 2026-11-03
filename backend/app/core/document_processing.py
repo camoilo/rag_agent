@@ -1,6 +1,8 @@
 """文档处理：解析 → 切分 → 向量化入库。"""
 
 import asyncio
+import logging
+import time
 from pathlib import Path
 
 from langchain_core.documents import Document
@@ -9,6 +11,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import get_settings
 from app.core.vector_store import get_vector_store
+
+logger = logging.getLogger(__name__)
 
 
 # MinerU 无法解析的纯文本格式，直接本地读取
@@ -97,11 +101,35 @@ def _split_documents(documents: list[Document], doc_id: str, document_name: str)
 
 async def ingest_document(doc_id: str, document_name: str, file_path: Path) -> int:
     """文档存入向量库，返回分块数；无有效内容返回 0。"""
+    logger.info("文档解析开始 id=%s name=%s suffix=%s", doc_id, document_name, file_path.suffix)
+    parse_started = time.perf_counter()
     parsed = await asyncio.to_thread(_load_documents, file_path)
     content = [document for document in parsed if document.page_content.strip()]
+    logger.info(
+        "文档解析完成 id=%s 段落=%d 有效字符=%d 耗时=%dms",
+        doc_id,
+        len(content),
+        sum(len(document.page_content) for document in content),
+        int((time.perf_counter() - parse_started) * 1000),
+    )
+    split_started = time.perf_counter()
     chunks = await asyncio.to_thread(_split_documents, content, doc_id, document_name)
     if not chunks:
+        logger.info("文档无有效内容 id=%s", doc_id)
         return 0
+    logger.info(
+        "文档切分完成 id=%s chunks=%d 耗时=%dms",
+        doc_id,
+        len(chunks),
+        int((time.perf_counter() - split_started) * 1000),
+    )
     store = get_vector_store()
+    vector_started = time.perf_counter()
     await asyncio.to_thread(store.add_documents, chunks)
+    logger.info(
+        "向量写入完成 id=%s chunks=%d 耗时=%dms",
+        doc_id,
+        len(chunks),
+        int((time.perf_counter() - vector_started) * 1000),
+    )
     return len(chunks)

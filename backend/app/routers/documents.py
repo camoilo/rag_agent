@@ -1,6 +1,7 @@
 """文档管理路由：上传（后台向量化）/ 列表 / 删除。"""
 
 import asyncio
+import logging
 import uuid
 from pathlib import Path
 from typing import Annotated, BinaryIO
@@ -20,6 +21,7 @@ from app.db import connect, now
 from app.schemas import DocumentOut
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
+logger = logging.getLogger(__name__)
 
 _DOCUMENT_COLUMNS = "id, document_name, status, error, chunk_count, created_at"
 _UPLOAD_CHUNK_BYTES = 1024 * 1024
@@ -106,6 +108,12 @@ async def upload_document(
         await db.commit()
 
     background_tasks.add_task(_vectorize, doc.id, doc.document_name, file_path)
+    logger.info(
+        "文档已接收 id=%s name=%s size=%dKB 已转后台向量化",
+        doc.id,
+        doc.document_name,
+        size // 1024,
+    )
     return doc
 
 
@@ -122,6 +130,7 @@ async def delete_document(doc_id: Annotated[str, PathParam()]):
 
     for path in UPLOADS_DIR.glob(f"{doc_id}.*"):
         path.unlink(missing_ok=True)
+    logger.info("文档已删除 id=%s（向量、记录与源文件已清理）", doc_id)
 
 
 @router.post("/{doc_id}/retry")
@@ -157,6 +166,7 @@ async def retry_document(
 
     await asyncio.to_thread(delete_document_vectors, doc_id)  # 清掉可能残留的分块，避免重复入库
     background_tasks.add_task(_vectorize, doc_id, row["document_name"], file_path)
+    logger.info("文档重试 id=%s name=%s", doc_id, row["document_name"])
     return DocumentOut(
         id=doc_id,
         document_name=row["document_name"],
@@ -170,6 +180,7 @@ async def retry_document(
 async def _vectorize(doc_id: str, document_name: str, file_path: Path):
     """后台向量化，完成后更新状态：ready / empty / failed。"""
     async with _INGEST_SEMAPHORE:
+        logger.info("开始向量化 id=%s name=%s", doc_id, document_name)
         try:
             chunk_count = await ingest_document(doc_id, document_name, file_path)
             status = "ready" if chunk_count else "empty"
@@ -181,8 +192,12 @@ async def _vectorize(doc_id: str, document_name: str, file_path: Path):
                 await db.commit()
             if cursor.rowcount == 0:
                 # 向量化期间文档已被删除：清理刚写入的向量
+                logger.info("向量化期间文档已删除，清理残留向量 id=%s", doc_id)
                 await asyncio.to_thread(delete_document_vectors, doc_id)
+            else:
+                logger.info("向量化完成 id=%s status=%s chunks=%d", doc_id, status, chunk_count)
         except Exception as exc:
+            logger.exception("向量化失败 id=%s name=%s", doc_id, document_name)
             async with connect() as db:
                 await db.execute(
                     "UPDATE documents SET status = 'failed', error = ? WHERE id = ?",

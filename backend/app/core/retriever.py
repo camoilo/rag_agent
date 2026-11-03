@@ -2,12 +2,17 @@
 
 import hashlib
 import heapq
+import logging
+import time
+
 import jieba
 from langchain_core.documents import Document
 from rank_bm25 import BM25Okapi
 
 from app.config import get_settings
 from app.core.vector_store import get_vector_store
+
+logger = logging.getLogger(__name__)
 
 _RRF_K = 60  # RRF 平滑常数，默认60，按需调整
 _BM25_K1 = 1.5  # BM25 词频饱和速度，通常1.2~2.0
@@ -47,12 +52,18 @@ def _get_bm25_index() -> _BM25Index:
     # 只取 id 算指纹（ids 始终随结果返回），避免每次检索都拉取全部分块正文与元数据
     fingerprint = hash(tuple(get_vector_store().get(include=[])["ids"]))
     if _bm25_index is None or _bm25_index.fingerprint != fingerprint:
+        rebuild_started = time.perf_counter()
         result = get_vector_store().get()
         corpus = [
             Document(page_content=text, metadata=metadata or {})
             for text, metadata in zip(result["documents"], result["metadatas"])
         ]
         _bm25_index = _BM25Index(corpus, result["ids"])
+        logger.info(
+            "BM25 索引重建完成 chunks=%d 耗时=%dms",
+            len(corpus),
+            int((time.perf_counter() - rebuild_started) * 1000),
+        )
     return _bm25_index
 
 
@@ -74,9 +85,17 @@ def _vector_search(query: str, k: int) -> list[Document]:
 
 def retrieve(query: str) -> list[Document]:
     """检索知识库，返回 top_k 分块。"""
+    started = time.perf_counter()
     settings = get_settings()
     if not settings.use_hybrid:
-        return _vector_search(query, settings.top_k)
+        chunks = _vector_search(query, settings.top_k)
+        logger.info(
+            "检索完成 mode=vector query=%s returned=%d elapsed=%dms",
+            query[:60],
+            len(chunks),
+            int((time.perf_counter() - started) * 1000),
+        )
+        return chunks
 
     vector_chunks = _vector_search(query, settings.candidate_k)
     bm25_chunks = _bm25_search(query, settings.candidate_k)
@@ -91,4 +110,13 @@ def retrieve(query: str) -> list[Document]:
             chunk_dict[key] = chunk
 
     ranked: list[str] = sorted(score_dict, key=lambda i: score_dict[i], reverse=True)
-    return [chunk_dict[key] for key in ranked[: settings.top_k]]
+    results = [chunk_dict[key] for key in ranked[: settings.top_k]]
+    logger.info(
+        "检索完成 mode=hybrid query=%s vector=%d bm25=%d returned=%d elapsed=%dms",
+        query[:60],
+        len(vector_chunks),
+        len(bm25_chunks),
+        len(results),
+        int((time.perf_counter() - started) * 1000),
+    )
+    return results
