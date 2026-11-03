@@ -112,28 +112,30 @@ docker compose up -d --build
 
 ### 应用配置（`backend/app/config.py`）
 
-| 变量                 | 默认值                                        | 说明                                            |
-|----------------------|-----------------------------------------------|-------------------------------------------------|
-| `CORS_ORIGINS`       | `http://localhost:5173,http://127.0.0.1:5173` | 允许的跨域来源，逗号分隔；生产由 nginx 同源反代 |
-| `OPENAI_BASE_URL`    | 阿里云百炼 compatible-mode 接口               | 对话模型接口                                    |
-| `CHAT_MODEL`         | `qwen3.8-flash`                               | 对话模型名                                      |
-| `EMBEDDING_BASE_URL` | 同 `OPENAI_BASE_URL`                          | 向量模型接口                                    |
-| `EMBEDDING_MODEL`    | `qwen3.7-text-embedding-flash`                | 向量模型名                                      |
-| `EMBED_BATCH_SIZE`   | `20`                                          | 单次嵌入请求的文本行数                          |
-| `LLM_TIMEOUT`        | `60`                                          | 对话模型网络超时（秒）                          |
-| `EMBEDDING_TIMEOUT`  | `30`                                          | 向量化请求网络超时（秒）                        |
-| `MAX_RETRIES`        | `2`                                           | 网络错误或超时的重试次数                        |
-| `MINERU_MODE`        | `precision`                                   | 解析模式；flash 免 token 但限 ≤10MB / ≤20 页    |
-| `MINERU_LANGUAGE`    | `ch`                                          | 文档语言                                        |
-| `MINERU_OCR`         | `false`                                       | 扫描件开启 OCR；仅 precision 生效               |
-| `MINERU_FORMULA`     | `true`                                        | 公式识别；仅 precision 生效                     |
-| `MINERU_TABLE`       | `true`                                        | 表格识别；仅 precision 生效                     |
-| `MINERU_TIMEOUT`     | `600`                                         | 单文件解析等待上限（秒）                        |
-| `CHUNK_SIZE`         | `800`                                         | 切分块大小                                      |
-| `CHUNK_OVERLAP`      | `100`                                         | 切分重叠长度                                    |
-| `TOP_K`              | `4`                                           | 最终返回的引用块数                              |
-| `USE_HYBRID`         | `true`                                        | 混合检索；`false` 为纯向量                      |
-| `CANDIDATE_K`        | `20`                                          | 混合检索每路召回候选数                          |
+| 变量                    | 默认值                                        | 说明                                                   |
+|-------------------------|-----------------------------------------------|--------------------------------------------------------|
+| `CORS_ORIGINS`          | `http://localhost:5173,http://127.0.0.1:5173` | 允许的跨域来源，逗号分隔；生产由 nginx 同源反代        |
+| `OPENAI_BASE_URL`       | 阿里云百炼 compatible-mode 接口               | 对话模型接口                                           |
+| `CHAT_MODEL`            | `qwen3.8-flash`                               | 对话模型名                                             |
+| `EMBEDDING_BASE_URL`    | 同 `OPENAI_BASE_URL`                          | 向量模型接口                                           |
+| `EMBEDDING_MODEL`       | `qwen3.7-text-embedding-flash`                | 向量模型名                                             |
+| `EMBED_BATCH_SIZE`      | `20`                                          | 单次嵌入请求的文本行数                                 |
+| `LLM_TIMEOUT`           | `60`                                          | 对话模型网络超时（秒）                                 |
+| `EMBEDDING_TIMEOUT`     | `30`                                          | 向量化请求网络超时（秒）                               |
+| `MAX_RETRIES`           | `2`                                           | 网络错误或超时的重试次数                               |
+| `MEMORY_TRIGGER_TOKENS` | `24000`                                       | 触发会话摘要的估算 token 阈值（中文约 1.2 字符/token） |
+| `MEMORY_KEEP_MESSAGES`  | `12`                                          | 摘要后保留的最近消息条数                               |
+| `MINERU_MODE`           | `precision`                                   | 解析模式；flash 免 token 但限 ≤10MB / ≤20 页           |
+| `MINERU_LANGUAGE`       | `ch`                                          | 文档语言                                               |
+| `MINERU_OCR`            | `false`                                       | 扫描件开启 OCR；仅 precision 生效                      |
+| `MINERU_FORMULA`        | `true`                                        | 公式识别；仅 precision 生效                            |
+| `MINERU_TABLE`          | `true`                                        | 表格识别；仅 precision 生效                            |
+| `MINERU_TIMEOUT`        | `600`                                         | 单文件解析等待上限（秒）                               |
+| `CHUNK_SIZE`            | `800`                                         | 切分块大小                                             |
+| `CHUNK_OVERLAP`         | `100`                                         | 切分重叠长度                                           |
+| `TOP_K`                 | `4`                                           | 最终返回的引用块数                                     |
+| `USE_HYBRID`            | `true`                                        | 混合检索；`false` 为纯向量                             |
+| `CANDIDATE_K`           | `20`                                          | 混合检索每路召回候选数                                 |
 
 除了直接更改这些配置，也可用同名大写环境变量临时覆盖。
 
@@ -160,6 +162,7 @@ docker compose up -d --build
 ## 设计要点
 
 - **记忆与业务隔离**：会话记忆存独立 SQLite（`agent_memory.db`），与业务库（`app.db`）分离，避免锁竞争，会话间记忆互不可见。
+- **长会话自动压缩**：会话上下文估算超过 `MEMORY_TRIGGER_TOKENS` 时，将早期对话压缩为摘要并仅保留最近 `MEMORY_KEEP_MESSAGES` 条消息，避免触碰模型上下文上限；业务库历史消息仍完整保留。
 - **模型自主检索**：知识检索封装为 `knowledge_search` 工具，由模型决定是否调用；系统提示词要求先检索再回答、引用标注 `[n]`、无结果时如实说明。
 - **删除即清理**：删会话 → 同步清空该会话记忆；删文档 → 直接清理业务记录、向量块与上传原件。
 - **解析交给 MinerU**：文档经 MinerU 在线 API 解析为 Markdown（表格、公式一并保留）后入库，文件会上传至 mineru.net。

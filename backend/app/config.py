@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     embedding_timeout: float = 30  # 向量化请求网络超时（秒）
     max_retries: int = 2        # 网络错误/超时时的重试次数
 
+    # 会话记忆：上下文超过阈值时由模型摘要早期对话，避免长会话触碰模型上下文上限
+    memory_trigger_tokens: int = 24000  # 触发摘要的估算 token 阈值（中文按约 1.2 字符/token 估算）
+    memory_keep_messages: int = 12      # 摘要后保留的最近消息条数
+
     # 文档解析（MinerU）
     mineru_token: str = ""            # 在.env 中配置，仅 precision 模式生效
     mineru_mode: str = "precision"    # precision（需 token）/ flash（免 token）

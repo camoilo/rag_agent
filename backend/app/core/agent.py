@@ -1,11 +1,15 @@
 """Agent：LLM、knowledge_search 工具与带会话记忆的 agent 实例。"""
 
+from collections.abc import Sequence
 from contextvars import ContextVar
 from functools import lru_cache
 import hashlib
 from typing import Annotated
 import aiosqlite
 from langchain.agents import create_agent
+from langchain.agents.middleware import SummarizationMiddleware
+from langchain_core.messages import BaseMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -81,12 +85,27 @@ def knowledge_search(query: Annotated[str, "检索查询，使用与提问一致
     return "\n\n".join(blocks)
 
 
+def _count_memory_tokens(messages: Sequence[BaseMessage]) -> int:
+    """按中文约 1.2 字符/token 估算上下文"""
+    return count_tokens_approximately(messages, chars_per_token=1.2)
+
+
 def build_agent(checkpointer: AsyncSqliteSaver):
     """创建 agent：模型自主决定是否/如何检索，记忆按 thread_id 持久化。"""
+    settings = get_settings()
     return create_agent(
         model=get_llm(),
         tools=[knowledge_search],
         system_prompt=_SYSTEM_PROMPT,
+        middleware=[
+            # 长会话超过阈值后将早期对话压缩为摘要，仅保留最近若干条消息
+            SummarizationMiddleware(
+                model=get_llm(),
+                trigger=("tokens", settings.memory_trigger_tokens),
+                keep=("messages", settings.memory_keep_messages),
+                token_counter=_count_memory_tokens,
+            )
+        ],
         checkpointer=checkpointer,
     )
 
