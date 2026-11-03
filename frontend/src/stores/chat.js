@@ -24,6 +24,7 @@ export const useChatStore = defineStore('chat', {
     currentSessionId: null,
     messages: [],
     loadingMessages: false, // 历史消息加载中
+    messagesRequestSeq: 0, // 历史消息请求序号：仅接受最新一次切换的结果
     streaming: false,
     abortController: null,
   }),
@@ -49,11 +50,17 @@ export const useChatStore = defineStore('chat', {
       // 切换会话时先中止旧会话的流，避免 token 继续写入已丢弃的消息数组
       if (this.streaming && id !== this.currentSessionId) this.stopStreaming()
       this.currentSessionId = id
+      const seq = ++this.messagesRequestSeq
       this.loadingMessages = true
       try {
-        this.messages = await listMessages(id)
+        const messages = await listMessages(id)
+        // 快速切换时旧请求可能后返回：只有最新序号且会话未被切换/删除时才写入
+        if (seq !== this.messagesRequestSeq || this.currentSessionId !== id) return
+        this.messages = messages
+      } catch (err) {
+        if (seq === this.messagesRequestSeq) throw err
       } finally {
-        this.loadingMessages = false
+        if (seq === this.messagesRequestSeq) this.loadingMessages = false
       }
     },
 
